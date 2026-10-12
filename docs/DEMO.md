@@ -2,13 +2,36 @@
 
 This demo uses only the synthetic project in demo-project. Do not select the repository root or a real personal project for destructive operations.
 
-## Prepare and run
+## Prepare and run (Windows PowerShell)
 
-1. Copy the repository-root .env.example to .env. Set NEBIUS_API_KEY in the backend environment and set DEVSWEEP_WORKSPACE_ROOT to the absolute repository root. Never copy a real key into a frontend variable or screenshot.
-2. From the repository root, run the backend dependency setup documented in README.md. Start the API from backend with `uvicorn main:app --reload`.
-3. In a second terminal, install frontend dependencies and run `npm run dev` from frontend.
-4. Open http://localhost:5173 and check the provider indicator. If it says mock, the scan and interface can be explored, but an executable plan is unavailable. Do not describe mock output as live AI.
-5. Generate or reset the synthetic data from the repository root with `python generate_demo.py`. This resets only known generated directories and the temporary demo artifact under demo-project. It leaves the source and package manifest alone.
+Run this once from the repository root to prepare the isolated fixture and backend environment:
+
+```powershell
+python .\generate_demo.py
+python -m venv .\backend\.venv
+.\backend\.venv\Scripts\python.exe -m pip install -r .\backend\requirements.txt
+Copy-Item .\.env.example .\.env
+```
+
+Edit the root `.env` locally. Set `DEVSWEEP_WORKSPACE_ROOT` to the full path of this checkout and add `NEBIUS_API_KEY` only if live inference is intended. Keep `.env` private; never put a key in a frontend variable, terminal capture, screenshot, or video.
+
+Start the backend in Terminal 1 from the repository root:
+
+```powershell
+$env:DEVSWEEP_WORKSPACE_ROOT = (Resolve-Path .).Path
+Push-Location .\backend
+.\.venv\Scripts\python.exe -m uvicorn main:app --reload --host 127.0.0.1 --port 8000
+```
+
+Start the frontend in Terminal 2:
+
+```powershell
+Set-Location .\frontend
+npm ci
+npm run dev -- --host 127.0.0.1
+```
+
+Open the URL printed by Vite (normally http://127.0.0.1:5173) and check the provider indicator. If it says `mock`, the scan and interface can be explored, but the backend correctly refuses to create an executable cleanup plan. Do not describe mock output as live AI. The synthetic fixture is separate from the app source and is generated only by `python .\generate_demo.py` from the repository root.
 
 ## Walkthrough
 
@@ -40,4 +63,10 @@ The optional POST /api/scan/demo/reset route runs the same generator. Use it onl
 
 ## Genuine screenshots and video
 
-Capture the running app at the scan/findings stage, the reviewed cleanup plan, and the verification or restore result. Use the operating system screenshot tool and save genuine captures under docs/images. Keep API keys, personal paths, and other private information out of frame. The optional screenshots section in README.md should be updated only after those files exist. Record a 2–3 minute screen capture, upload it to the chosen public video host, and add the verified URL to the Devpost entry.
+Use Windows Snipping Tool (`Win+Shift+S`) on the running app and save genuine captures under `docs/images` with these names:
+
+1. `01-scan-findings.png` — the completed scan and candidate list, with the provider label visible.
+2. `02-reviewed-plan.png` — the exact selected paths, risks, and approval controls before execution.
+3. `03-verification-restore.png` — the actual post-cleanup verification and, if completed, the verified backup restore result.
+
+Keep keys and personal paths out of frame. Capture each state from the live app; never draw or edit a result into an image. If the mock provider prevents a plan or the live operation fails, do not manufacture the missing plan or success screenshot. Update the optional screenshots section in README only after the files exist. Record a 2–3 minute screen capture following the timed script above, then add a video URL to the Devpost entry only after the video has actually been uploaded and checked.
