@@ -54,11 +54,10 @@ dist/
 *.sublime-project
 
 # Environment files
-.env
-.env.local
-.env.*.local
-.env.production
-.env.staging
+.env*
+!.env.example
+**/.env*
+!**/.env.example
 
 # Database
 *.db
@@ -87,6 +86,10 @@ demo-project/dist/
 demo-project/.vite/
 demo-project/logs/
 demo-project/cache/
+demo-project/coverage/
+demo-project/.nyc_output/
+demo-project/review-me/
+demo-project/temp-artifact.tmp
 
 # Test outputs
 test-output/

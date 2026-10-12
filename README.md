@@ -1,5 +1,7 @@
 # DevSweep AI
 
+> A safer way for students and developers to reclaim laptop storage from project-generated files.
+
 > **Clean your workspace. Keep your project. Restore it anytime.**
 DevSweep AI is an intelligent developer workspace management tool that helps you reclaim storage space from regenerable artifacts (node_modules, build outputs, caches, virtual environments) while keeping your source code, Git history, and project configuration safe.
 
@@ -25,7 +27,7 @@ DevSweep AI uses an **agentic AI workflow** to:
 4. **Plan** a cleanup with risk levels and explanations
 5. **Ask** for your approval before any destructive action
 6. **Execute** approved cleanup safely
-7. **Verify** the project still works
+7. **Verify** reported cleanup outcomes and protected-file checks
 
 ## Architecture
 
@@ -91,7 +93,7 @@ The AI **recommends**, the application **validates**, the user **approves**, the
 - **CAUTION** - Project-specific caches, unknown large directories
 - **DANGEROUS** - Source code, Git history, .env files, credentials, databases
 
-Default: **SAFE cleanup only**. Explicit confirmation required for CAUTION.
+Every deletion requires explicit user approval. CAUTION items receive a higher-risk label and require review; DANGEROUS items are blocked.
 
 ### Deletion Allowlist
 
@@ -106,12 +108,14 @@ The server re-validates every deletion target against a fresh scanner run at exe
 
 ## Nebius + NVIDIA Integration
 
-This project is built for the **Nebius x NVIDIA Global AI Hackathon**.
+This project integrates the Nebius Token Factory API with NVIDIA Nemotron for explainable workspace recommendations.
 
 - **Nebius Token Factory** endpoint: `https://api.tokenfactory.us-central1.nebius.com/v1/`
 - **Model**: `nvidia/nemotron-3-super-120b-a12b`
 - Real runtime calls to Nebius Token Factory in the analysis and chat endpoints
 - AI provider abstraction (NebiusProvider / MockProvider) — mock is used only when no API key is configured
+
+Only a successful live Nebius analysis can authorize the normal cleanup-plan workflow. The mock provider is identified and cannot authorize deletion. Provider availability reported by the API means credentials are configured; it does not by itself prove that a live request succeeded.
 
 ## Quick Start
 
@@ -138,18 +142,34 @@ npm run dev
 | `DEVSWEEP_WORKSPACE_ROOT` | Root directory to scan (default: current dir) | No |
 | `DEVSWEEP_DB_PATH` | SQLite application-history file (default: `./data/devsweep.db`, relative to the configured workspace root) | No |
 | `DEVSWEEP_BACKUP_ROOT` | Verified content-backup directory (default: per-user application data directory; must be outside scanned project trees) | No |
-| `DEVSWEEP_DEMO_MODE` | Enable demo fixture (true/false) | No |
+| `DEVSWEEP_DEMO_MODE` | Force the mock provider for non-destructive development (true/false) | No |
 | `BACKEND_HOST` | Loopback bind address (default: `127.0.0.1`; non-loopback values are rejected until remote authentication exists) | No |
 
 ## Demo Mode
 
-The demo project fixture is generated locally with a fixed random seed (deterministic), producing ~128 MB of real files across 7 cleanup candidates:
+The synthetic demo project fixture is generated locally with repeatable files and sizes. Its total size is measured by the scanner at run time; candidate counts can vary as patterns change:
 
 ```bash
 python generate_demo.py          # generate/reset demo data
 uvicorn main:app --reload        # from backend/
 # POST /api/scan/demo/reset also regenerates on demand
 ```
+
+The fixture uses synthetic data and includes protected source/configuration files, a temporary artifact, regenerable outputs, and an unclassified directory for review. Generate or reset it with `python generate_demo.py` from the repository root. See [docs/DEMO.md](docs/DEMO.md) for the complete workflow and timed recording script.
+
+Set `DEVSWEEP_WORKSPACE_ROOT` to this repository's absolute path before starting the backend so the built-in demo project is inside the configured workspace boundary.
+
+## Safety and Limitations
+
+- Scanner findings are deterministic; AI recommendations are separate and cannot authorize filesystem access.
+- Cleanup paths must be discovered by the scanner, remain inside the authorized workspace, pass protected-path and risk checks, and receive explicit approval.
+- Approved deletions are backed up and SHA-256 verified first. Restore is available only for completed deletions with a verified backup, requires approval, and does not overwrite existing files.
+- Backups are unencrypted, have no automatic retention, and do not preserve ownership or platform ACLs. Directory restore can be partial if the filesystem fails.
+- The detector recognizes a bounded set of common artifact names and project types. External-workspace grant controls are currently API-only.
+- Without a valid Nebius key, mock analysis remains available for non-destructive development, but no executable cleanup plan can be created.
+- Post-cleanup verification checks recorded filesystem state; it does not automatically run the project's build or tests.
+
+See [docs/DEVPOST_DRAFT.md](docs/DEVPOST_DRAFT.md) for the submission write-up and [docs/DEMO.md](docs/DEMO.md) for demo instructions.
 
 ## Local Workspace Security
 
@@ -227,6 +247,15 @@ DevSweepAI/
 | GET | `/api/cleanup/backups` | Verified backup items from completed cleanup operations |
 | POST | `/api/cleanup/restore` | Restore one verified item (requires project path and explicit approval) |
 | GET | `/api/cleanup/restore/history` | Persistent restore outcomes |
+
+## Verification in this environment
+
+- Backend: `python -m pytest -q -p no:cacheprovider` — 103 passed, 2 skipped, 1 Pydantic deprecation warning. The skipped tests need symlink/junction creation unavailable in this Windows environment.
+- Frontend: `npm test -- --reporter=dot` — 58 passed across 11 files.
+- Production frontend build: `npm run build` — passed (TypeScript and Vite; 1,591 modules transformed).
+- Local API: `/health` returned healthy. The generated synthetic demo scan found 9 candidates totaling 144,989,850 bytes estimated (138.3 MB as formatted by the app).
+- Demo reset: the API regenerated the fixture and the subsequent scan returned the same 9 candidates and byte total. Mock analysis returned `ai_used=false`, and a plan request without successful live analysis was rejected with HTTP 403.
+- The configured provider was mock because no Nebius key was available. Live inference, AI-authorized cleanup, and the full browser-driven cleanup/restore flow were not verified. No cleanup was performed during this run.
 
 ## License
 
