@@ -130,6 +130,11 @@ const mockPlanResponse = {
   verification_steps: ['Verify project still builds', 'Run tests if available', 'Check git status'],
 }
 
+const mockProjectRegistration = {
+  ok: true,
+  json: async () => ({ grant_id: 'test-folder-grant', project_path: '/test/project' }),
+}
+
 function renderWithProviders(ui: React.ReactElement) {
   return render(
     <MemoryRouter initialEntries={['/scan']}>
@@ -154,7 +159,7 @@ describe('ScanWorkspace', () => {
   })
 
   it('shows scan results after successful scan', async () => {
-    ;(global.fetch as vi.Mock).mockResolvedValueOnce({
+    ;(global.fetch as vi.Mock).mockResolvedValueOnce(mockProjectRegistration).mockResolvedValueOnce({
       ok: true,
       json: async () => mockScanResult,
     })
@@ -170,14 +175,18 @@ describe('ScanWorkspace', () => {
     await waitFor(() => {
       expect(screen.getByText(/Review Cleanup Candidates/i)).toBeInTheDocument()
     })
+    expect(global.fetch).toHaveBeenNthCalledWith(2, '/api/scan/', expect.objectContaining({ method: 'POST' }))
 
     expect(screen.getByText('node_modules')).toBeInTheDocument()
     expect(screen.getByText('dist')).toBeInTheDocument()
     expect(screen.getByText('cache')).toBeInTheDocument()
+    expect(screen.getByText('Potential cleanup selected')).toBeInTheDocument()
+    expect(screen.getByText('162.1 MB')).toBeInTheDocument()
+    expect(screen.getByText('3 of 3 deletable items selected')).toBeInTheDocument()
   })
 
   it('shows Run AI Analysis button after scan', async () => {
-    ;(global.fetch as vi.Mock).mockResolvedValueOnce({
+    ;(global.fetch as vi.Mock).mockResolvedValueOnce(mockProjectRegistration).mockResolvedValueOnce({
       ok: true,
       json: async () => mockScanResult,
     })
@@ -201,6 +210,9 @@ describe('ScanWorkspace', () => {
 
   it('calls /api/ai/analyze when Run AI Analysis is clicked', async () => {
     ;(global.fetch as vi.Mock)
+      .mockResolvedValueOnce({
+        ...mockProjectRegistration,
+      })
       .mockResolvedValueOnce({
         ok: true,
         json: async () => ({ ...mockScanResult, access_grant_id: 'test-folder-grant' }),
@@ -227,8 +239,8 @@ describe('ScanWorkspace', () => {
     fireEvent.click(screen.getByText('Run AI Analysis'))
 
     await waitFor(() => {
-      expect(global.fetch).toHaveBeenCalledTimes(2)
-      const analyzeCall = (global.fetch as vi.Mock).mock.calls[1]
+      expect(global.fetch).toHaveBeenCalledTimes(3)
+      const analyzeCall = (global.fetch as vi.Mock).mock.calls[2]
       expect(analyzeCall[0]).toBe('/api/ai/analyze')
       const payload = JSON.parse(analyzeCall[1].body)
       expect(payload.project_path).toBe('/test/project')
@@ -238,6 +250,9 @@ describe('ScanWorkspace', () => {
 
   it('shows error when AI analysis fails', async () => {
     ;(global.fetch as vi.Mock)
+      .mockResolvedValueOnce({
+        ...mockProjectRegistration,
+      })
       .mockResolvedValueOnce({
         ok: true,
         json: async () => mockScanResult,
@@ -276,6 +291,9 @@ describe('ScanWorkspace', () => {
   it('labels mock analysis and keeps plan creation disabled when ai_used is false', async () => {
     ;(global.fetch as vi.Mock)
       .mockResolvedValueOnce({
+        ...mockProjectRegistration,
+      })
+      .mockResolvedValueOnce({
         ok: true,
         json: async () => mockScanResult,
       })
@@ -307,6 +325,9 @@ describe('ScanWorkspace', () => {
 
   it('calls /api/cleanup/plan and navigates to /plans when Approve & Create Cleanup Plan is clicked after AI analysis', async () => {
     ;(global.fetch as vi.Mock)
+      .mockResolvedValueOnce({
+        ...mockProjectRegistration,
+      })
       .mockResolvedValueOnce({
         ok: true,
         json: async () => mockScanResult,
@@ -357,8 +378,8 @@ describe('ScanWorkspace', () => {
     })
 
     // Verify the plan API was called with correct payload
-    expect(global.fetch).toHaveBeenCalledTimes(3)
-    const planCall = (global.fetch as vi.Mock).mock.calls[2]
+    expect(global.fetch).toHaveBeenCalledTimes(4)
+    const planCall = (global.fetch as vi.Mock).mock.calls[3]
     expect(planCall[0]).toBe('/api/cleanup/plan')
     const payload = JSON.parse(planCall[1].body)
     expect(payload.project_path).toBe('/test/project')
@@ -374,6 +395,9 @@ describe('ScanWorkspace', () => {
 
   it('shows error when plan creation fails', async () => {
     ;(global.fetch as vi.Mock)
+      .mockResolvedValueOnce({
+        ...mockProjectRegistration,
+      })
       .mockResolvedValueOnce({
         ok: true,
         json: async () => mockScanResult,
@@ -434,7 +458,7 @@ describe('ScanWorkspace', () => {
       cleanup_candidates: [],
     }
     
-    ;(global.fetch as vi.Mock).mockResolvedValueOnce({
+    ;(global.fetch as vi.Mock).mockResolvedValueOnce(mockProjectRegistration).mockResolvedValueOnce({
       ok: true,
       json: async () => emptyScanResult,
     })
@@ -456,7 +480,7 @@ describe('ScanWorkspace', () => {
   })
 
   it('shows error when scan fails', async () => {
-    ;(global.fetch as vi.Mock).mockRejectedValueOnce(new Error('Network error'))
+    ;(global.fetch as vi.Mock).mockResolvedValueOnce(mockProjectRegistration).mockRejectedValueOnce(new Error('Network error'))
 
     renderWithProviders(<ScanWorkspace />)
     
@@ -473,7 +497,10 @@ describe('ScanWorkspace', () => {
 
   it('offers retry after a connection failure and does not treat it as an empty scan', async () => {
     ;(global.fetch as vi.Mock)
+      .mockResolvedValueOnce(mockProjectRegistration)
       .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockResolvedValueOnce({ ok: true, json: async () => ({}) })
+      .mockResolvedValueOnce(mockProjectRegistration)
       .mockResolvedValueOnce({ ok: true, status: 200, json: async () => mockScanResult })
     renderWithProviders(<ScanWorkspace />)
     fireEvent.change(screen.getByPlaceholderText(/enter path or leave empty/i), { target: { value: '/test/project' } })
@@ -481,7 +508,7 @@ describe('ScanWorkspace', () => {
     expect(await screen.findByText(/could not reach the backend/i)).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Retry scan' }))
     await waitFor(() => expect(screen.getByText(/Review Cleanup Candidates/i)).toBeInTheDocument())
-    expect(global.fetch).toHaveBeenCalledTimes(2)
+    expect(global.fetch).toHaveBeenCalledTimes(5)
   })
 
   it('reports an empty successful response as unusable instead of showing empty scan results', async () => {

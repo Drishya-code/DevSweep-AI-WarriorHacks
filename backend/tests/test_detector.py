@@ -11,6 +11,7 @@ from scanner.detector import (
     detect_language,
     find_cleanup_candidates,
     analyze_project,
+    detect_git_status,
     ProjectType,
     RiskLevel,
     SAFE_PATTERNS,
@@ -323,6 +324,7 @@ class TestGitState:
             analysis = analyze_project(root)
             assert analysis.has_git == True
             assert analysis.git_clean == True
+            assert analysis.git_status == "clean"
 
     def test_git_dirty_detected(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -344,6 +346,30 @@ class TestGitState:
             analysis = analyze_project(root)
             assert analysis.has_git == True
             assert analysis.git_clean == False
+            assert analysis.git_status == "uncommitted"
+
+    def test_folder_nested_inside_repository_is_detected(self):
+        import shutil
+        import subprocess
+        if not shutil.which("git"):
+            pytest.skip("Git executable is unavailable.")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir) / "repo"
+            project = root / "packages" / "app"
+            project.mkdir(parents=True)
+            subprocess.run(["git", "init", str(root)], capture_output=True, check=True)
+            has_git, is_clean, status = detect_git_status(project)
+            assert has_git is True
+            assert is_clean is True
+            assert status == "clean"
+
+    def test_git_executable_unavailable_is_distinct_from_non_repository(self, monkeypatch, tmp_path):
+        import shutil
+        real_which = shutil.which
+        monkeypatch.setattr(shutil, "which", lambda _binary: None)
+        assert detect_git_status(tmp_path) == (False, False, "unavailable")
+        monkeypatch.setattr(shutil, "which", real_which)
+        assert detect_git_status(tmp_path) == (False, False, "not_repository")
 
 
 class TestCleanupEngine:
@@ -1103,7 +1129,7 @@ class TestRegressionPhase36:
                 (cache_dir / f"file{i}.bin").write_bytes(b"x" * 300000)  # ~15MB total = CAUTION
             
             # Scan and analyze
-            scan_resp = client.post("/api/scan", json={"path": tmpdir})
+            scan_resp = client.post("/api/scan/", json={"path": tmpdir})
             assert scan_resp.status_code == 200
             
             ai_resp = client.post("/api/ai/analyze", json={"project_path": str(root)})
@@ -1152,7 +1178,7 @@ class TestRegressionPhase36:
                 (cache_dir / f"file{i}.bin").write_bytes(b"x" * 300000)  # ~15MB total = CAUTION
             
             # 1. Scan
-            scan_resp = client.post("/api/scan", json={"path": tmpdir})
+            scan_resp = client.post("/api/scan/", json={"path": tmpdir})
             assert scan_resp.status_code == 200
             
             # 2. AI Analyze (MockProvider returns CAUTION for cache)
@@ -1231,7 +1257,7 @@ class TestRegressionPhase36:
             for i in range(50):
                 (cache_dir / f"file{i}.bin").write_bytes(b"x" * 300000)
             
-            scan_resp = client.post("/api/scan", json={"path": tmpdir})
+            scan_resp = client.post("/api/scan/", json={"path": tmpdir})
             plan_resp = client.post("/api/cleanup/generate-plan", json={"project_path": str(root)})
             plan = plan_resp.json()
             plan_id = plan["plan_id"]
@@ -1263,7 +1289,7 @@ class TestRegressionPhase36:
             nm_dir.mkdir()
             (nm_dir / "file.js").write_bytes(b"x" * 1000000)
             
-            scan_resp = client.post("/api/scan", json={"path": tmpdir})
+            scan_resp = client.post("/api/scan/", json={"path": tmpdir})
             plan_resp = client.post("/api/cleanup/generate-plan", json={"project_path": str(root)})
             plan = plan_resp.json()
             plan_id = plan["plan_id"]
@@ -1295,7 +1321,7 @@ class TestRegressionPhase36:
             nm_dir.mkdir()
             (nm_dir / "file.js").write_bytes(b"x" * 1000000)
             
-            scan_resp = client.post("/api/scan", json={"path": tmpdir})
+            scan_resp = client.post("/api/scan/", json={"path": tmpdir})
             plan_resp = client.post("/api/cleanup/generate-plan", json={"project_path": str(root)})
             plan = plan_resp.json()
             
@@ -1318,7 +1344,7 @@ class TestRegressionPhase36:
             nyc_dir.mkdir()
             (nyc_dir / "out.json").write_bytes(b"x" * 100000)
             
-            scan_resp = client.post("/api/scan", json={"path": tmpdir})
+            scan_resp = client.post("/api/scan/", json={"path": tmpdir})
             plan_resp = client.post("/api/cleanup/generate-plan", json={"project_path": str(root)})
             plan = plan_resp.json()
             plan_id = plan["plan_id"]

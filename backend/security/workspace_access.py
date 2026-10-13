@@ -59,10 +59,14 @@ def _canonical_directory(raw_path: str) -> tuple[Path, DirectoryIdentity]:
         raise ProjectAccessError("Project path cannot be resolved safely.", 400) from exc
     if not candidate.is_absolute():
         candidate = settings.workspace_root / candidate
+    lexical = Path(os.path.abspath(candidate))
     try:
         canonical = candidate.resolve(strict=True)
     except (OSError, RuntimeError, ValueError) as exc:
         raise ProjectAccessError("Project path is unavailable or cannot be resolved safely.", 404) from exc
+    root = _canonical_workspace_root()
+    if _is_relative_to(lexical, root) and not _is_relative_to(canonical, root):
+        raise ProjectAccessError("A symlink or junction cannot escape the configured workspace.")
     return canonical, _identity(canonical)
 
 
@@ -155,8 +159,10 @@ external_project_grants = InMemoryExternalGrantStore()
 def create_external_project_grant(raw_path: str) -> ExternalProjectGrant:
     canonical_path, identity = _canonical_directory(raw_path)
     workspace_root = _canonical_workspace_root()
-    if _is_relative_to(canonical_path, workspace_root):
-        raise ProjectAccessError("This project is already inside the configured workspace.", 409)
+    # Registering an in-root folder is useful too: the exact-folder token is
+    # carried through scans, analysis, plans, cleanup, and restore operations.
+    if canonical_path == workspace_root:
+        raise ProjectAccessError("Register a project folder inside the configured root, not the root itself.", 400)
 
     # A grant scopes access to one selected project folder, never a filesystem
     # root, home directory, or ancestor that would implicitly include the
@@ -165,7 +171,7 @@ def create_external_project_grant(raw_path: str) -> ExternalProjectGrant:
     home = Path.home().resolve()
     if canonical_path == anchor or canonical_path == home or _is_relative_to(home, canonical_path):
         raise ProjectAccessError("Broad filesystem locations cannot be granted; select one project folder.", 400)
-    if _is_relative_to(workspace_root, canonical_path):
+    if not _is_relative_to(canonical_path, workspace_root) and _is_relative_to(workspace_root, canonical_path):
         raise ProjectAccessError("A grant cannot include the configured workspace or its parent.", 400)
     broad_roots = {
         Path(os.path.abspath(os.path.expanduser(path))).resolve()
@@ -185,7 +191,8 @@ def create_external_project_grant(raw_path: str) -> ExternalProjectGrant:
         pass
     if os.name != "nt":
         broad_roots.update(Path(path).resolve() for path in ("/tmp", "/var", "/usr", "/etc", "/opt", "/mnt", "/media"))
-    if canonical_path in broad_roots:
+    sensitive_names = {".ssh", ".aws", ".gnupg", ".azure", ".kube", "appdata", "windows", "program files", "program files (x86)"}
+    if canonical_path in broad_roots or canonical_path.name.casefold() in sensitive_names:
         raise ProjectAccessError("Broad system directories cannot be granted; select one project folder.", 400)
     return external_project_grants.create(canonical_path, identity)
 
@@ -193,21 +200,17 @@ def create_external_project_grant(raw_path: str) -> ExternalProjectGrant:
 def authorize_project_path(raw_path: str, grant_id: Optional[str] = None) -> ProjectAuthorization:
     canonical_path, identity = _canonical_directory(raw_path)
     workspace_root = _canonical_workspace_root()
+    if grant_id:
+        grant = external_project_grants.get(grant_id)
+        if not grant:
+            raise ProjectAccessError("Folder registration is invalid or expired. Register this project again.")
+        if grant.canonical_path != canonical_path:
+            raise ProjectAccessError("Folder registration is bound to a different project.")
+        if grant.identity != identity:
+            external_project_grants.revoke(grant.grant_id)
+            raise ProjectAccessError("Registered project identity changed. Register this folder again.")
+        return ProjectAuthorization(canonical_path, identity, grant.grant_id)
     if _is_relative_to(canonical_path, workspace_root):
-        if grant_id:
-            grant = external_project_grants.get(grant_id)
-            if not grant or grant.canonical_path != canonical_path:
-                raise ProjectAccessError("Folder grant is invalid for this project.")
-            # A grant for an external project cannot be reused for an in-root project.
-            raise ProjectAccessError("Folder grant is bound to a different project.")
         return ProjectAuthorization(canonical_path, identity)
 
-    grant = external_project_grants.get(grant_id or "")
-    if not grant:
-        raise ProjectAccessError("Project is outside the configured workspace; an explicit folder grant is required.")
-    if grant.canonical_path != canonical_path:
-        raise ProjectAccessError("Folder grant is bound to a different project.")
-    if grant.identity != identity:
-        external_project_grants.revoke(grant.grant_id)
-        raise ProjectAccessError("Granted project identity changed. Create a new folder grant.")
-    return ProjectAuthorization(canonical_path, identity, grant.grant_id)
+    raise ProjectAccessError("Project is outside the configured workspace; an explicit folder registration is required.")

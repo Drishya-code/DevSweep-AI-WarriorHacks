@@ -1,72 +1,82 @@
-# Reproducible demo
+# Reproducible synthetic demo
 
-This demo uses only the synthetic project in demo-project. Do not select the repository root or a real personal project for destructive operations.
+This walkthrough uses only the isolated `demo-project` fixture. Never select the repository root or a personal project for a destructive demo. Cleanup requires a fresh scan, real AI analysis, review, and explicit approval.
 
-## Prepare and run (Windows PowerShell)
+## Prepare on Windows
 
-Run this once from the repository root to prepare the isolated fixture and backend environment:
+From the repository root, install dependencies and reset the fixture:
 
 ```powershell
-python .\generate_demo.py
-python -m venv .\backend\.venv
+if (-not (Test-Path .\backend\.venv\Scripts\python.exe)) { py -m venv .\backend\.venv }
 .\backend\.venv\Scripts\python.exe -m pip install -r .\backend\requirements.txt
-Copy-Item .\.env.example .\.env
-```
-
-Edit the root `.env` locally. Set `DEVSWEEP_WORKSPACE_ROOT` to the full path of this checkout and add `NEBIUS_API_KEY` only if live inference is intended. Keep `.env` private; never put a key in a frontend variable, terminal capture, screenshot, or video.
-
-Start the backend in Terminal 1 from the repository root:
-
-```powershell
-$env:DEVSWEEP_WORKSPACE_ROOT = (Resolve-Path .).Path
-Push-Location .\backend
-.\.venv\Scripts\python.exe -m uvicorn main:app --reload --host 127.0.0.1 --port 8000
-```
-
-Start the frontend in Terminal 2:
-
-```powershell
 Set-Location .\frontend
-npm ci
-npm run dev -- --host 127.0.0.1
+npm.cmd ci
+Set-Location ..
+.\backend\.venv\Scripts\python.exe .\generate_demo.py
+if (-not (Test-Path .\.env)) { Copy-Item .\.env.example .\.env }
 ```
 
-Open the URL printed by Vite (normally http://127.0.0.1:5173) and check the provider indicator. If it says `mock`, the scan and interface can be explored, but the backend correctly refuses to create an executable cleanup plan. Do not describe mock output as live AI. The synthetic fixture is separate from the app source and is generated only by `python .\generate_demo.py` from the repository root.
+Set `DEVSWEEP_WORKSPACE_ROOT` in the root `.env` to the full checkout path. Set `NEBIUS_API_KEY` only if live inference is intended. Keep `.env` private; never show a key in a recording, screenshot, terminal, or frontend setting. A configured provider is not proof of successful inference. Check the app's provider/analysis result and say “live Nebius analysis” only after the real request succeeds.
 
-## Walkthrough
+### Backend terminal
 
-1. Show demo-project/src and package.json before cleanup. These are the protected source and configuration examples.
-2. In Scan Workspace, scan demo-project. Explain that listed byte totals are current-size estimates, not savings already achieved.
-3. Run AI analysis. Point out the provider/model and whether the result came from live Nebius inference. Scanner paths and sizes remain deterministic; the model provides recommendations and explanations.
-4. Review temp-artifact.tmp as the disposable temporary example, generated directories such as dist or .vite as regenerable outputs, and review-me as an uncertain directory that needs careful review. Select only the item(s) you intend to remove. The caution item requires explicit approval.
-5. Generate the plan. Show the exact path, risk, reason, size, and application-side safety checks. Check the approval box only after reviewing the plan, then execute.
-6. Show the execution outcome and post-cleanup verification. Explain that the reported freed bytes come from the operation result.
-7. Open Restore Center, inspect a verified backup, and restore the selected temporary artifact if the backend reports a completed backup. The restore requires a second approval and will not overwrite an existing file.
-8. Rescan or inspect the demo project to show the restored temporary file and that src and package.json remain present. Do not say restoration succeeded unless the UI reports it.
+Open a new PowerShell window at the repo root:
 
-If an operation fails, show the actual error and do not edit the UI state or substitute a simulated result.
+```powershell
+Set-Location 'C:\path\to\DevSweep-AI-WarriorHacks'
+$env:DEVSWEEP_WORKSPACE_ROOT = (Resolve-Path .).Path
+Set-Location .\backend
+..\.venv\Scripts\python.exe -m uvicorn main:app --reload --host 127.0.0.1 --port 8000
+```
 
-## Reset between runs
+### Frontend terminal
 
-Close the active plan, then run `python generate_demo.py` from the repository root. This recreates generated demo contents with fixed sizes and repeatable harmless bytes. It does not reset application history or remove backups; the SQLite history and backup directory are separate from the demo fixture. Review and manage those records through the app and local files as needed.
+Open another PowerShell window:
 
-The optional POST /api/scan/demo/reset route runs the same generator. Use it only when you intentionally want to reset the demo fixture.
+```powershell
+Set-Location 'C:\path\to\DevSweep-AI-WarriorHacks\frontend'
+npm.cmd run dev -- --host 127.0.0.1
+```
 
-## Recording script (about 2 minutes 40 seconds)
+Open the local URL Vite prints, normally `http://127.0.0.1:5173`. Use `npm.cmd` in PowerShell if the execution policy blocks `npm.ps1`. If port 8000 is busy, check whether a backend is already running before starting another.
 
-- 0:00–0:20 — “Students and developers can run short on laptop storage as project installs and build outputs accumulate. Deleting files by guesswork can break a project.”
-- 0:20–0:45 — Show the synthetic demo workspace and start the scan. “This fixture is local and synthetic. The source and package manifest are protected.”
-- 0:45–1:20 — Review candidate paths, sizes, explanations, and risks. Distinguish deterministic scanner findings from the configured AI provider. Call the storage number an estimate.
-- 1:20–1:50 — Review the exact plan, approve the chosen item, and execute cleanup. Show the actual outcome.
-- 1:50–2:15 — Show verification and, if it completed, inspect and restore the verified backup. Point out that restore refuses to overwrite.
-- 2:15–2:40 — Explain that Nebius Token Factory with NVIDIA Nemotron can recommend actions, while deterministic backend checks and user approval govern execution. State the bounded detector and backup limitations.
+## Demo flow
 
-## Genuine screenshots and video
+1. Choose **Try Safe Demo**. Confirm the selected path ends in `demo-project`.
+2. Show `demo-project/src` and `demo-project/package.json` as protected examples.
+3. Scan the fixture. A reset currently creates nine synthetic candidate groups totaling 144,989,850 bytes (about 138.3 MiB / 144.99 MB decimal). These are current size estimates, not savings already achieved. Candidate totals can change if scanner patterns change.
+4. Run AI analysis. Point out the provider/model and whether the app reports a successful live request. The scanner supplies paths and measured sizes; the model adds recommendations. Mock analysis cannot authorize an executable cleanup plan.
+5. Review each path and risk. SAFE candidates include generated outputs such as `dist` (about 14.4 MB), `coverage` (about 2.8 MB), and `temp-artifact.tmp` (96 KB); `node_modules` is about 76.3 MB. The larger `logs`, `cache`, and `review-me` candidates are CAUTION. Include only items you have reviewed.
+6. Create the plan and inspect its exact items and risks. Explicitly approve only after review. The backend backs up and verifies each item before deleting it. Large folders with thousands of files may take several minutes; the app displays current item progress.
+7. Show execution and verification separately. Verification is not a substitute for a project build/test, and an integrity-check pass alone does not mean a file was deleted.
+8. In Restore Center, inspect the verified backup for an item that the execution record says was deleted. Approve restore. Existing files are never overwritten; if the destination already exists, restore safely refuses.
+9. Confirm the restored artifact exists and that `src` and `package.json` remain present. Claim success only when the app and filesystem confirm it.
 
-Use Windows Snipping Tool (`Win+Shift+S`) on the running app and save genuine captures under `docs/images` with these names:
+## Reset between takes
 
-1. `01-scan-findings.png` — the completed scan and candidate list, with the provider label visible.
-2. `02-reviewed-plan.png` — the exact selected paths, risks, and approval controls before execution.
-3. `03-verification-restore.png` — the actual post-cleanup verification and, if completed, the verified backup restore result.
+Close or leave any existing plan; it refers to the prior scan. From the repository root:
 
-Keep keys and personal paths out of frame. Capture each state from the live app; never draw or edit a result into an image. If the mock provider prevents a plan or the live operation fails, do not manufacture the missing plan or success screenshot. Update the optional screenshots section in README only after the files exist. Record a 2–3 minute screen capture following the timed script above, then add a video URL to the Devpost entry only after the video has actually been uploaded and checked.
+```powershell
+.\backend\.venv\Scripts\python.exe .\generate_demo.py
+```
+
+Then return to the app and choose **Try Safe Demo** to create a fresh scan. Reset only targets the dedicated synthetic `demo-project` directory after link/junction safety checks. It does not clear SQLite history or the separate backup store. The app's **Reset Demo Sandbox** action runs the same generator. Do not reset while a cleanup or restore operation is still running.
+
+## Recording guide (about 2 minutes 40 seconds)
+
+- **0:00–0:20:** Introduce the storage problem and risk of deleting by guesswork.
+- **0:20–0:45:** Show the synthetic workspace and protected source/configuration examples.
+- **0:45–1:20:** Scan; review measured candidate sizes, descriptions, and risk. Explain which state is scanner output and which is AI recommendation.
+- **1:20–1:50:** Review the exact plan, approve a carefully chosen candidate, execute, and show the real result. Keep the capture running while a large verified backup completes.
+- **1:50–2:15:** Show verification. Review and restore a verified backup only if the run completed and the destination is absent.
+- **2:15–2:40:** Summarize model role, backend safety gates, and limitations. Clearly label any provider failure or skipped step.
+
+## Screenshots and video
+
+Capture genuine screenshots with Windows Snipping Tool (`Win+Shift+S`) from the running application. Save them in `docs/images/` only after capture:
+
+1. `01-scan-findings.png` — completed scan, candidate paths, sizes, risk, and provider state.
+2. `02-reviewed-plan.png` — reviewed paths and approval controls before execution.
+3. `03-verification-restore.png` — actual execution, verification, and restore outcome.
+
+Do not expose API keys, private paths, or personal information. Do not make a missing step look successful through edits. Record the actual application for 2–3 minutes, review playback/audio/readability, and add its uploaded URL to the submission only after it exists and has been checked. No screenshot or video placeholder should be presented as a finished deliverable.

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { AlertTriangle, History, RotateCcw } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, History, RotateCcw, X } from 'lucide-react'
 import { useDevSweep } from '../context/DevSweepContext'
 import { useViewMode } from '../context/ViewModeContext'
 import { Button } from '../components/ui/Button'
@@ -37,6 +37,7 @@ export function RestoreCenter() {
   const [details, setDetails] = useState<BackupDetails | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  const [restoreToast, setRestoreToast] = useState<{ path: string; summary: string } | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -57,6 +58,12 @@ export function RestoreCenter() {
 
   useEffect(() => { void load() }, [load])
 
+  useEffect(() => {
+    if (!restoreToast) return
+    const timeout = window.setTimeout(() => setRestoreToast(null), 6000)
+    return () => window.clearTimeout(timeout)
+  }, [restoreToast])
+
   const restore = async (backup: Backup) => {
     if (!currentProject || currentProject.project_id !== backup.project_id || restoring || details?.backup_id !== backup.backup_id) return
     const confirmed = window.confirm(`Restore “${backup.path}” (${details.entry_count} entries, ${formatBytes(backup.size_bytes)}) from its verified backup? Existing files will never be overwritten.`)
@@ -70,7 +77,12 @@ export function RestoreCenter() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ backup_id: backup.backup_id, project_path: currentProject.project_path, access_grant_id: currentProject.access_grant_id, approved: true }),
       })
-      setNotice(result.summary)
+      if (result.status === 'completed') {
+        setRestoreToast({ path: backup.path, summary: result.summary })
+        setNotice(null)
+      } else {
+        setNotice(result.summary)
+      }
       await load()
     } catch (err) {
       setError(apiErrorMessage(err, viewMode))
@@ -106,6 +118,17 @@ export function RestoreCenter() {
         <h1 className="text-2xl font-bold">Restore Center</h1>
         <p className="mt-1 text-devsweep-textSecondary">Restore verified contents saved before cleanup. Files are never overwritten, and backups are not automatically removed.</p>
       </div>
+      {restoreToast && <div role="status" aria-live="polite" className="fixed bottom-6 right-6 z-50 flex max-w-md items-start gap-3 rounded-xl border border-devsweep-success/40 bg-devsweep-bgSecondary p-4 text-devsweep-text shadow-2xl">
+        <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-devsweep-success" />
+        <div className="min-w-0 flex-1">
+          <p className="font-semibold text-devsweep-success">Restored successfully</p>
+          <p className="mt-1 break-all text-sm">{restoreToast.path}</p>
+          <p className="mt-1 text-xs text-devsweep-textSecondary">{restoreToast.summary}</p>
+        </div>
+        <button type="button" aria-label="Dismiss restore notification" onClick={() => setRestoreToast(null)} className="rounded p-1 text-devsweep-textMuted hover:bg-devsweep-bgTertiary hover:text-devsweep-text">
+          <X className="h-4 w-4" />
+        </button>
+      </div>}
       {error && <ErrorAlert title="Recovery data unavailable" message={error} action={{ label: 'Retry', onClick: () => void load() }} />}
       {notice && <div role="status" className="rounded-lg border border-devsweep-success/30 bg-devsweep-success/10 p-4 text-sm text-devsweep-success">{notice}</div>}
       {currentProject ? (
@@ -137,6 +160,9 @@ export function RestoreCenter() {
                   </Button>
                 </div>
               </div>
+              {restoring === backup.backup_id && <p role="status" aria-live="polite" className="mt-3 rounded-lg border border-devsweep-accent/30 bg-devsweep-accent/5 p-3 text-sm text-devsweep-textSecondary">
+                Verifying the saved backup and restoring <span className="font-mono">{backup.path}</span> ({formatBytes(backup.size_bytes)}). Large folders may take a few minutes; keep this page open. Existing files are never overwritten.
+              </p>}
               {details?.backup_id === backup.backup_id && <div className="mt-4 border-t border-devsweep-border pt-3">
                 <p className="mb-2 text-sm font-medium">Backup contents ({details.entry_count} entries; the full backup passed SHA-256 verification)</p>
                 <ul className="max-h-64 space-y-1 overflow-auto rounded-lg bg-devsweep-bgTertiary/40 p-3 text-xs">

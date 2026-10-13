@@ -52,7 +52,7 @@ describe('Dashboard', () => {
   it('shows technical scan detail and uses only candidate measurements', () => {
     testView.mode = 'technical'
     renderPage({ currentProject: project, scanHistory: [project] })
-    expect(screen.getByText('C:\\work\\demo-app')).toBeInTheDocument()
+    expect(screen.getAllByText('C:\\work\\demo-app').length).toBeGreaterThan(0)
     expect(screen.getByText('Scanned candidate details')).toBeInTheDocument()
     expect(screen.getByText('Generated build output')).toBeInTheDocument()
     expect(screen.getByText('Candidate sizes are measured by the scanner; this is not total project disk usage.')).toBeInTheDocument()
@@ -68,6 +68,7 @@ describe('Dashboard', () => {
     await waitFor(() => expect(global.fetch).toHaveBeenCalledWith('/api/cleanup/history/summary', undefined))
     ;(global.fetch as vi.Mock).mockReturnValueOnce(new Promise(resolve => { resolveScan = resolve }))
     fireEvent.click(screen.getByRole('button', { name: 'Scan Workspace' }))
+    expect(global.fetch).toHaveBeenCalledWith('/api/scan/', expect.objectContaining({ method: 'POST' }))
     expect(setIsScanning).toHaveBeenCalledWith(true)
     await act(async () => { resolveScan({ ok: true, json: async () => project }) })
     await waitFor(() => {

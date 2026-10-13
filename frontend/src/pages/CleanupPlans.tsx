@@ -53,6 +53,7 @@ type VerifyResult = {
   checks: Array<{ name: string; passed: boolean; message: string }>
   errors: string[]
 }
+type ExecutionProgress = { completedItems: number; totalItems: number; currentPath?: string }
 
 async function responseError(response: Response, fallback: string) {
   try {
@@ -72,6 +73,7 @@ export function CleanupPlans() {
   const [execution, setExecution] = useState<ExecutionResult | null>(null)
   const [verification, setVerification] = useState<VerifyResult | null>(null)
   const [verificationError, setVerificationError] = useState<string | null>(null)
+  const [executionProgress, setExecutionProgress] = useState<ExecutionProgress | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [approved, setApproved] = useState(false)
   const [historicalPlan, setHistoricalPlan] = useState(false)
@@ -175,6 +177,35 @@ export function CleanupPlans() {
     setExecuting(true)
     setError(null)
     setVerificationError(null)
+    setExecutionProgress(null)
+    let progressRequestActive = false
+    const refreshExecutionProgress = async () => {
+      if (progressRequestActive) return
+      progressRequestActive = true
+      try {
+        const response = await fetch('/api/cleanup/history/executions?limit=20')
+        if (!response.ok) return
+        const history = await response.json() as { executions?: Array<{
+          plan_id: string
+          status: string
+          planned_items: number
+          outcomes?: Array<{ path: string; outcome: string }>
+        }> }
+        const activeExecution = history.executions?.find(item => item.plan_id === plan.plan_id && item.status === 'in_progress')
+        if (!activeExecution) return
+        const outcomes = activeExecution.outcomes || []
+        setExecutionProgress({
+          completedItems: outcomes.filter(item => item.outcome === 'completed' || item.outcome === 'failed').length,
+          totalItems: activeExecution.planned_items,
+          currentPath: outcomes.find(item => item.outcome === 'in_progress')?.path,
+        })
+      } catch {
+        // Progress history is best-effort; the execution request remains authoritative.
+      } finally {
+        progressRequestActive = false
+      }
+    }
+    const progressTimer = window.setInterval(() => { void refreshExecutionProgress() }, 1500)
     try {
       const response = await fetch('/api/cleanup/execute', {
         method: 'POST',
@@ -203,6 +234,8 @@ export function CleanupPlans() {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Execution failed')
     } finally {
+      window.clearInterval(progressTimer)
+      setExecutionProgress(null)
       executionLock.current = false
       setExecuting(false)
     }
@@ -293,7 +326,14 @@ export function CleanupPlans() {
                   {executing ? 'Executing cleanup…' : 'Approve & Execute Cleanup'}
                 </Button>}
               </div>
-              {executing && <div className="mt-4" role="status"><LoadingState variant="inline" text="Cleanup is running. This operation cannot be cancelled from the application." /></div>}
+              {executing && <div className="mt-4 space-y-2" role="status">
+                <LoadingState variant="inline" text={executionProgress?.currentPath
+                  ? `Creating and verifying a backup for ${executionProgress.currentPath} before removal… ${executionProgress.completedItems} of ${executionProgress.totalItems} items complete.`
+                  : executionProgress
+                    ? `${executionProgress.completedItems} of ${executionProgress.totalItems} items complete. Preparing the next verified backup…`
+                    : 'Starting cleanup and preparing verified backups…'} />
+                <p className="pl-8 text-xs text-devsweep-textMuted">Large folders can take several minutes because DevSweep verifies each backup before removing the original.</p>
+              </div>}
             </div>
           </Card>
         </>
@@ -314,8 +354,8 @@ export function CleanupPlans() {
             <div className="flex items-start gap-3">
               {verificationError ? <AlertCircle className="mt-0.5 h-6 w-6 text-devsweep-warning" /> : verification?.passed ? <CheckCircle className="mt-0.5 h-6 w-6 text-devsweep-success" /> : <XCircle className="mt-0.5 h-6 w-6 text-devsweep-danger" />}
               <div>
-                <h2 className="font-semibold">{verificationError ? 'Verification unavailable' : verification?.passed ? 'Verification passed' : 'Verification found issues'}</h2>
-                <p className="mt-1 text-sm text-devsweep-textSecondary">{verificationError || (verification?.passed ? 'The backend verification checks passed.' : 'One or more backend verification checks reported issues.')}</p>
+                <h2 className="font-semibold">{verificationError ? 'Verification unavailable' : verification?.passed ? execution.items_deleted === 0 ? 'Project integrity checks passed' : 'Verification passed' : 'Verification found issues'}</h2>
+                <p className="mt-1 text-sm text-devsweep-textSecondary">{verificationError || (verification?.passed ? execution.items_deleted === 0 ? 'No files were deleted. These checks only confirm the current project and protected files; create a fresh scan and plan before trying cleanup again.' : 'The backend verification checks passed.' : 'One or more backend verification checks reported issues.')}</p>
               </div>
             </div>
             {verification?.checks && <ul className="mt-4 space-y-2">{verification.checks.map((check, i) => <li key={`${check.name}-${i}`} className={cn('text-sm', check.passed ? 'text-devsweep-success' : 'text-devsweep-danger')}><span className="font-medium">{check.name}:</span> {check.message}</li>)}</ul>}

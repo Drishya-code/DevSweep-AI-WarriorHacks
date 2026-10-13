@@ -16,9 +16,10 @@ def test_successful_scan_is_saved_and_history_api_returns_persistent_records(tmp
     monkeypatch.setattr(settings, "DEVSWEEP_WORKSPACE_ROOT", str(tmp_path / "workspace"))
     monkeypatch.setattr(settings, "DEVSWEEP_DB_PATH", str(tmp_path / "history.db"))
     try:
-        client = TestClient(app)
+        client = TestClient(app, follow_redirects=False)
         scan = client.post("/api/scan/", json={"path": str(project)})
         assert scan.status_code == 200, scan.text
+        assert "location" not in scan.headers
         payload = scan.json()
         assert payload["scan_id"] and payload["project_id"]
 

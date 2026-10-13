@@ -9,6 +9,7 @@ class AIResponse:
     content: str
     usage: Optional[dict] = None
     model: Optional[str] = None
+    tool_calls: Optional[list] = None
 
 
 @dataclass
@@ -80,32 +81,10 @@ class MockProvider(AIProvider):
         temperature: float = 0.1,
         max_tokens: int = 4096,
     ) -> AIResponse:
-        # Return a deterministic mock response based on the last user message
-        last_msg = messages[-1] if messages else None
-        if last_msg and "scan" in last_msg.content.lower():
-            content = json.dumps({
-                "project_type": "node",
-                "framework": "react",
-                "package_manager": "npm",
-                "cleanup_candidates": [
-                    {"path": "node_modules", "risk": "SAFE", "reason": "Regenerable dependencies", "size_bytes": 1800000000},
-                    {"path": "dist", "risk": "SAFE", "reason": "Build output", "size_bytes": 420000000},
-                    {"path": ".vite", "risk": "SAFE", "reason": "Vite cache", "size_bytes": 86000000},
-                ],
-                "total_recoverable_bytes": 2306000000,
-            })
-        elif last_msg and "plan" in last_msg.content.lower():
-            content = json.dumps({
-                "plan": [
-                    {"path": "node_modules", "action": "DELETE", "risk": "SAFE", "reason": "Regenerable using package-lock.json", "estimated_bytes": 1800000000},
-                    {"path": "dist", "action": "DELETE", "risk": "SAFE", "reason": "Generated build output", "estimated_bytes": 420000000},
-                    {"path": ".vite", "action": "DELETE", "risk": "SAFE", "reason": "Vite cache directory", "estimated_bytes": 86000000},
-                ],
-                "total_safe_recovery_bytes": 2306000000,
-            })
-        else:
-            content = "Mock AI response for development. Configure NEBIUS_API_KEY for real AI."
-
+        # A mock must never invent scan or plan results. Deterministic operations
+        # are available through the application APIs, while model-backed chat is
+        # clearly unavailable until a real provider is configured.
+        content = "Live AI chat is unavailable while the mock provider is active. Configure the backend Nebius provider to use natural-language chat. Scan results must come from the Scan Workspace tool."
         return AIResponse(content=content, model=self._model_name)
 
     async def structured_completion(

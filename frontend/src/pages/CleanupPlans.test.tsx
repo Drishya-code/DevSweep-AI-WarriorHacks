@@ -170,6 +170,20 @@ describe('CleanupPlans', () => {
     expect(screen.getByText('Verification found issues')).toBeInTheDocument()
   })
 
+  it('does not imply cleanup succeeded when a stale plan deletes no files', async () => {
+    queuePlan()
+    renderWithProviders(<CleanupPlans />)
+    await createPlan()
+    ;(global.fetch as vi.Mock)
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ ...successfulExecution, success: false, items_processed: 0, items_deleted: 0, items_failed: 0, bytes_freed: 0, bytes_freed_human: '0 B', errors: ['Path does not exist: dist'] }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => passedVerification })
+    await approvePlan()
+    expect(await screen.findByText('Execution failed')).toBeInTheDocument()
+    expect(screen.getByText('Project integrity checks passed')).toBeInTheDocument()
+    expect(screen.getByText(/No files were deleted/)).toBeInTheDocument()
+    expect(screen.queryByText('Verification passed')).not.toBeInTheDocument()
+  })
+
   it('reports verification request errors without fabricating a result', async () => {
     queuePlan()
     renderWithProviders(<CleanupPlans />)
@@ -220,7 +234,7 @@ describe('CleanupPlans', () => {
     const execute = screen.getByRole('button', { name: 'Approve & Execute Cleanup' })
     fireEvent.click(execute)
     fireEvent.click(execute)
-    expect(screen.getByText(/cannot be cancelled from the application/)).toBeInTheDocument()
+    expect(screen.getByText(/Starting cleanup and preparing verified backups/)).toBeInTheDocument()
     expect(global.fetch).toHaveBeenCalledTimes(2)
     resolveExecution({ ok: true, json: async () => successfulExecution })
     ;(global.fetch as vi.Mock).mockResolvedValueOnce({ ok: true, json: async () => passedVerification })

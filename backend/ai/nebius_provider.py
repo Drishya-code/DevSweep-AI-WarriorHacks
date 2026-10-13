@@ -79,6 +79,7 @@ class NebiusProvider(AIProvider):
             content=choice.message.content or "",
             usage=response.usage.model_dump() if response.usage else None,
             model=response.model,
+            tool_calls=[tool_call.model_dump(mode="json") for tool_call in (choice.message.tool_calls or [])] or None,
         )
 
     async def structured_completion(

@@ -13,6 +13,7 @@ import { RiskBadge } from '../components/ui/RiskBadge'
 import { cn, formatBytes } from '../utils/helpers'
 import { apiErrorMessage, requestJson } from '../utils/api'
 import type { ScanResponse } from '../types/api'
+import { WorkspaceSelector } from '../components/WorkspaceSelector'
 
 type Risk = 'SAFE' | 'CAUTION' | 'DANGEROUS'
 
@@ -72,7 +73,9 @@ export function Dashboard() {
     setError(null)
     setFailedScanRequest(null)
     try {
-      const result = await requestJson<ScanResponse>(endpoint, body ? {
+      const actualEndpoint = endpoint === '/api/scan/demo' && currentProject?.workspace_mode === 'demo' && currentProject.access_grant_id
+        ? `${endpoint}?access_grant_id=${encodeURIComponent(currentProject.access_grant_id)}` : endpoint
+      const result = await requestJson<ScanResponse>(actualEndpoint, body ? {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
       } : undefined)
       setCurrentProject(result)
@@ -88,7 +91,9 @@ export function Dashboard() {
   const healthMessage = !currentProject
     ? 'Scan a project to see its current status.'
     : !currentProject.has_git
-      ? 'Git metadata was not detected in this project.'
+      ? currentProject.git_status === 'unavailable' ? 'Git executable is unavailable; this project can still be scanned.' : 'Not a Git repository. This project can still be scanned.'
+      : currentProject.git_status === 'detection_error'
+        ? 'Git repository detected, but its status could not be determined.'
       : currentProject.git_clean
         ? 'The working tree was clean at the time of this scan.'
         : 'The working tree had uncommitted changes at the time of this scan.'
@@ -103,9 +108,11 @@ export function Dashboard() {
         </div>
         <div className="flex flex-wrap gap-3">
           {demoMode && <Button variant="secondary" onClick={() => runScan('/api/scan/demo')} disabled={isScanning} icon={<Sparkles className="h-4 w-4" />}>Scan Demo Project</Button>}
-          <Button onClick={() => runScan('/api/scan', {})} disabled={isScanning} loading={isScanning} icon={<Search className="h-4 w-4" />}>Scan Workspace</Button>
+          <Button onClick={() => runScan('/api/scan/', { path: currentProject?.project_path, access_grant_id: currentProject?.access_grant_id })} disabled={isScanning} loading={isScanning} icon={<Search className="h-4 w-4" />}>Scan Workspace</Button>
         </div>
       </header>
+
+      <WorkspaceSelector />
 
       {error && <ErrorAlert title="Scan failed" message={error} dismissible onDismiss={() => setError(null)} action={{ label: 'Retry scan', onClick: () => failedScanRequest && runScan(failedScanRequest.endpoint, failedScanRequest.body) }} />}
       <Card>
@@ -167,7 +174,7 @@ export function Dashboard() {
           {currentProject ? (
             <div className="space-y-4">
               <div className={cn('rounded-lg border p-4', !currentProject.has_git ? 'border-devsweep-border bg-devsweep-bgTertiary/50' : currentProject.git_clean ? 'border-devsweep-success/20 bg-devsweep-success/10' : 'border-devsweep-warning/20 bg-devsweep-warning/10')}>
-                <div className="flex items-start gap-3">{!currentProject.has_git ? <AlertCircle className="h-5 w-5 text-devsweep-textMuted" /> : currentProject.git_clean ? <CheckCircle className="h-5 w-5 text-devsweep-success" /> : <AlertCircle className="h-5 w-5 text-devsweep-warning" />}<p className="text-sm">{healthMessage}</p></div>
+                <div className="flex items-start gap-3">{!currentProject.has_git || currentProject.git_status === 'detection_error' ? <AlertCircle className="h-5 w-5 text-devsweep-textMuted" /> : currentProject.git_clean ? <CheckCircle className="h-5 w-5 text-devsweep-success" /> : <AlertCircle className="h-5 w-5 text-devsweep-warning" />}<p className="text-sm">{healthMessage}</p></div>
               </div>
               {dangerousCount > 0 && <div className="flex items-start gap-2 text-sm text-devsweep-danger"><ShieldAlert className="h-4 w-4 shrink-0" />{dangerousCount} dangerous candidate{dangerousCount === 1 ? '' : 's'} detected; backend cleanup safety blocks deletion.</div>}
               <div className="space-y-2 text-sm">
@@ -176,8 +183,7 @@ export function Dashboard() {
                   <Detail label="Framework" value={currentProject.framework} />
                   <Detail label="Language" value={currentProject.language} />
                   <Detail label="Package manager" value={currentProject.package_manager} />
-                  <Detail label="Git detected" value={currentProject.has_git ? 'Yes' : 'No'} />
-                  {currentProject.has_git && <Detail label="Git working tree" value={currentProject.git_clean ? 'Clean' : 'Uncommitted changes'} />}
+                  <Detail label="Git status" value={currentProject.git_status || (currentProject.has_git ? (currentProject.git_clean ? 'clean' : 'uncommitted') : 'not_repository')} />
                   <Detail label="Candidates across session scans" value={String(totals.candidates)} />
                 </>}
               </div>

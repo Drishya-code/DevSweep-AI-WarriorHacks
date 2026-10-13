@@ -17,7 +17,10 @@ def write_fixture_file(path: Path, size: int, label: str) -> None:
     seed = (label.encode("utf-8") + b" | DevSweep synthetic demo | ")
     block = (seed * ((4096 // len(seed)) + 1))[:4096]
     remaining = size
-    with path.open("wb") as output:
+    # Replace the directory entry first so a pre-existing hard link can never
+    # cause the reset to overwrite data outside the synthetic fixture.
+    path.unlink(missing_ok=True)
+    with path.open("xb") as output:
         while remaining:
             chunk = block[:min(len(block), remaining)]
             output.write(chunk)
@@ -25,6 +28,16 @@ def write_fixture_file(path: Path, size: int, label: str) -> None:
 
 def generate_demo(demo_root: Path = DEMO_ROOT, compact: bool = False):
     """Generate realistic demo project with actual file sizes."""
+    demo_root = Path(demo_root).absolute()
+    if demo_root.name.casefold() != "demo-project" or demo_root.is_symlink() or (hasattr(demo_root, "is_junction") and demo_root.is_junction()):
+        raise ValueError("Refusing to reset a path that is not the dedicated demo-project directory.")
+    # Validate every deletion target before deleting anything. A symlink or
+    # junction here might point to real user data, so reset fails closed.
+    dirs_to_clean = ["node_modules", "dist", ".vite", "logs", "cache", "coverage", ".nyc_output", "review-me"]
+    for name in dirs_to_clean:
+        path = demo_root / name
+        if path.is_symlink() or (hasattr(path, "is_junction") and path.is_junction()):
+            raise ValueError(f"Refusing to reset linked demo content: {name}")
     rng = random.Random(42)
     package_count = 5 if compact else 500
     dist_count = 3 if compact else 50
@@ -34,7 +47,6 @@ def generate_demo(demo_root: Path = DEMO_ROOT, compact: bool = False):
     coverage_count = 2 if compact else 30
     nyc_count = 2 if compact else 20
     # Clean existing demo dirs
-    dirs_to_clean = ["node_modules", "dist", ".vite", "logs", "cache", "coverage", ".nyc_output", "review-me"]
     for d in dirs_to_clean:
         path = demo_root / d
         if path.exists():

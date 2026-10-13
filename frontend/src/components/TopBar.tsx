@@ -1,9 +1,10 @@
 import { cn } from '../utils/helpers'
-import { Sparkles, Database, HardDrive, CheckCircle, AlertCircle, XCircle, Bot, Menu, Sun, Moon, Code, LayoutDashboard } from 'lucide-react'
+import { Database, HardDrive, CheckCircle, AlertCircle, XCircle, Bot, Menu, Sun, Moon, Code, LayoutDashboard } from 'lucide-react'
 import { useDevSweep } from '../context/DevSweepContext'
 import { useViewMode } from '../context/ViewModeContext'
 import { formatBytes as formatBytesUtil } from '../design-tokens'
 import { useState, useEffect, useRef } from 'react'
+import { BrandMark } from './BrandMark'
 
 export function TopBar({ onOpenNavigation, navigationOpen = false }: { onOpenNavigation?: () => void; navigationOpen?: boolean }) {
   const { currentProject, demoMode, aiProvider, aiModel } = useDevSweep()
@@ -48,7 +49,11 @@ export function TopBar({ onOpenNavigation, navigationOpen = false }: { onOpenNav
 
   const getProjectHealth = () => {
     if (!currentProject) return { label: 'Unknown', color: 'text-devsweep-textMuted', icon: AlertCircle }
-    if (!currentProject.has_git) return { label: 'Git Not Detected', color: 'text-devsweep-textMuted', icon: AlertCircle }
+    if (!currentProject.has_git) {
+      const unavailable = currentProject.git_status === 'unavailable'
+      return { label: unavailable ? 'Git Unavailable' : 'Not a Git Repository', color: 'text-devsweep-textMuted', icon: AlertCircle }
+    }
+    if (currentProject.git_status === 'detection_error') return { label: 'Git Status Unknown', color: 'text-devsweep-warning', icon: AlertCircle }
     if (!currentProject.git_clean) return { label: 'Uncommitted Changes', color: 'text-devsweep-warning', icon: AlertCircle }
     if (currentProject.cleanup_candidates.some(c => c.risk === 'DANGEROUS')) {
       return { label: 'Risky Items Found', color: 'text-devsweep-danger', icon: XCircle }
@@ -63,7 +68,7 @@ export function TopBar({ onOpenNavigation, navigationOpen = false }: { onOpenNav
       <div className="flex min-w-0 items-center gap-2 md:gap-6">
         {onOpenNavigation && <button ref={navigationButtonRef} type="button" onClick={onOpenNavigation} className="lg:hidden rounded-lg p-2 text-devsweep-textSecondary hover:bg-devsweep-bgTertiary hover:text-devsweep-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-devsweep-accent" aria-label="Open navigation menu" aria-haspopup="dialog" aria-expanded={navigationOpen} aria-controls="primary-navigation"><Menu className="h-5 w-5" aria-hidden="true" /></button>}
         <div className="flex items-center gap-2">
-          <Sparkles className="w-5 h-5 text-devsweep-accent" />
+          <BrandMark size={28} />
           <span className="hidden font-semibold text-lg sm:inline">DevSweep AI</span>
         </div>
 

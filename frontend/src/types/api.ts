@@ -13,12 +13,14 @@ export interface ScanResponse {
   project_id?: string | null
   project_path: string
   access_grant_id?: string | null
+  workspace_mode?: 'demo' | 'user'
   project_type: string
   framework: string
   package_manager: string
   language: string
   has_git: boolean
   git_clean: boolean
+  git_status?: 'clean' | 'uncommitted' | 'not_repository' | 'unavailable' | 'detection_error'
   cleanup_candidates: CleanupCandidateResponse[]
   total_recoverable_bytes: number
   total_recoverable_human: string

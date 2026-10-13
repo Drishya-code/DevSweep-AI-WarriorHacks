@@ -1,262 +1,123 @@
 # DevSweep AI
 
-> A safer way for students and developers to reclaim laptop storage from project-generated files.
+<p align="center"><img src="frontend/public/devsweep-neon-logo.png" alt="DevSweep AI neon mascot logo" width="220"></p>
 
-> **Clean your workspace. Keep your project. Restore it anytime.**
-DevSweep AI is an intelligent developer workspace management tool that helps you reclaim storage space from regenerable artifacts (node_modules, build outputs, caches, virtual environments) while keeping your source code, Git history, and project configuration safe.
+> Clean your workspace. Keep your project. Restore it anytime.
 
-## Problem
+DevSweep AI helps students and independent developers find storage-heavy project artifacts, understand the risks, review an exact cleanup plan, and recover removed content from a verified backup.
 
-Development projects accumulate massive amounts of regenerable files:
-- `node_modules` (often 1-2 GB)
-- Python virtual environments (100-500 MB)
-- Build/dist folders
-- Package manager caches
-- Compiler caches
-- Logs and temporary files
-- IDE caches
+**WarriorHacks 2.0 · Code Hackathon project**
 
-Manually identifying what's safe to delete is error-prone and time-consuming.
+- **Repository:** [Drishya-code/DevSweep-AI-WarriorHacks](https://github.com/Drishya-code/DevSweep-AI-WarriorHacks)
+- **Demo guide:** [docs/DEMO.md](docs/DEMO.md)
+- **Submission draft and current evidence:** [docs/DEVPOST_DRAFT.md](docs/DEVPOST_DRAFT.md)
+- **Demo production notes:** [docs/submission/demo/](docs/submission/demo/)
 
-## Solution
+## Why it exists
 
-DevSweep AI uses an **agentic AI workflow** to:
-1. **Scan** your workspace intelligently
-2. **Understand** your project type, dependencies, and structure
-3. **Analyze** what's safe to remove vs. what must be protected (via NVIDIA Nemotron)
-4. **Plan** a cleanup with risk levels and explanations
-5. **Ask** for your approval before any destructive action
-6. **Execute** approved cleanup safely
-7. **Verify** reported cleanup outcomes and protected-file checks
+Project installs, build outputs, caches, logs, and temporary files can consume substantial disk space. Removing unfamiliar folders by guesswork can break a project or lose useful data. DevSweep shows what it found, why it is a candidate, and what a proposed cleanup would affect before asking the user to approve it.
 
-## Architecture
+## How it works
 
-```
-DevSweep AI
-├── Frontend (React + Vite + Tailwind)
-│   ├── Dashboard - Storage overview, project cards, scan CTA
-│   ├── Projects - Manage multiple projects
-│   ├── Scan Workspace - Interactive scanning
-│   ├── Cleanup Plans - Review and approve plans
-│   ├── Cleanup History - Audit trail (Preview - not persisted)
-│   ├── Restore Center - Reconstruct environments (Preview - not executed)
-│   ├── AI Agent - Chat interface for natural language requests
-│   └── Settings - Configuration (no API key storage)
-│
-├── Backend (Python + FastAPI)
-│   ├── AI Agent (Nebius Token Factory + NVIDIA Nemotron)
-│   ├── Project Scanner (detect type, framework, dependencies, real git status)
-│   ├── Cleanup Engine (safety rules, risk assessment, scanner allowlist enforcement)
-│   ├── Verification Engine (project health after cleanup, pre-cleanup state tracking)
-│   └── Tools (filesystem, git with protection allowlists)
-│
-└── Demo Project Fixture
-     ├── ~128 MB of real generated files (deterministic seed)
-     └── Regenerated on demand via /api/scan/demo/reset
-```
+1. Select an authorized local project or the isolated synthetic demo workspace.
+2. Scan with deterministic filesystem rules and display candidate paths, measured sizes, and risk labels.
+3. Optionally request recommendations from NVIDIA Nemotron through Nebius Token Factory.
+4. Review a plan based only on scanner-discovered candidates. The backend keeps the authoritative risk and access checks.
+5. Approve cleanup explicitly. The backend saves and verifies a content backup before removing each item.
+6. Inspect execution and project-integrity results separately. Restore a verified backup only after approval, and never overwrite an existing destination.
 
-## AI Workflow
+The model recommends; deterministic backend checks and the user govern filesystem changes. A configured provider is not proof of live inference: the application reports live analysis only after a real request succeeds. Mock responses cannot authorize cleanup.
 
-```
-FILESYSTEM SCAN
-      ↓
-DETERMINISTIC CANDIDATES
-      ↓
-STRUCTURED CANDIDATE CONTEXT
-      ↓
-NVIDIA NEMOTRON VIA NEBIUS
-      ↓
-STRUCTURED AI RECOMMENDATIONS
-      ↓
-DETERMINISTIC SAFETY VALIDATION
-      ↓
-CLEANUP PLAN
-      ↓
-USER APPROVAL
-      ↓
-EXECUTION
+## Safety model
+
+- The backend is intended for local use and binds to loopback by default. It rejects non-loopback binding until authenticated remote access exists.
+- Project paths are canonicalized and access is revalidated. External projects require a temporary, folder-scoped grant.
+- Cleanup targets must be top-level candidates discovered by the scanner and pass fresh backend checks at execution time.
+- Source, Git history, credentials, environment files, and protected configuration are excluded. Dangerous items cannot be deleted; caution items need explicit approval.
+- A backup must pass content and SHA-256 manifest checks before deletion can proceed. Restore requires a matching authorized project and a destination that does not already exist.
+- Backups are unencrypted, retained until managed by the user, and do not preserve ownership or platform ACLs. Treat them as sensitive project data.
+- Verification checks recorded project and protected-file state. It does not run the project's build or test suite automatically.
+
+## Run locally
+
+Requirements: Python 3.10 or later, Node.js/npm, and Git for Git status detection. Use two PowerShell terminals from the repository root.
+
+Prepare dependencies and the synthetic fixture:
+
+```powershell
+if (-not (Test-Path .\backend\.venv\Scripts\python.exe)) { py -m venv .\backend\.venv }
+.\backend\.venv\Scripts\python.exe -m pip install -r .\backend\requirements.txt
+Set-Location .\frontend
+npm.cmd ci
+Set-Location ..
+.\backend\.venv\Scripts\python.exe .\generate_demo.py
+if (-not (Test-Path .\.env)) { Copy-Item .\.env.example .\.env }
 ```
 
-The AI **recommends**, the application **validates**, the user **approves**, the application **executes**. The AI never executes deletion directly.
+Set `DEVSWEEP_WORKSPACE_ROOT` in the root `.env` to this checkout's absolute path. Add a real `NEBIUS_API_KEY` there only if you intend to use live inference. Never commit `.env` or paste keys into screenshots, logs, or frontend variables.
 
-### Safety Rules for AI Recommendations
+Terminal 1 — backend:
 
-- AI recommendations for paths **not discovered by the scanner are rejected**
-- If AI upgrades SAFE → CAUTION, the higher (more restrictive) classification wins
-- AI can never downgrade risk
-- **DANGEROUS → DELETE is always rejected**
-- Only SAFE and CAUTION items can be deleted; CAUTION requires explicit user approval
-
-## Safety Model
-
-- **SAFE** - Regenerable artifacts (node_modules, dist, __pycache__, .venv)
-- **CAUTION** - Project-specific caches, unknown large directories
-- **DANGEROUS** - Source code, Git history, .env files, credentials, databases
-
-Every deletion requires explicit user approval. CAUTION items receive a higher-risk label and require review; DANGEROUS items are blocked.
-
-### Deletion Allowlist
-
-A DELETE target must satisfy ALL of:
-1. It is inside the project workspace (no path traversal, nothing outside)
-2. It is not protected (source code, .git, .env, credentials, config files)
-3. It was discovered by the deterministic scanner
-4. It is classified as SAFE or CAUTION (never DANGEROUS)
-5. CAUTION requires explicit user approval
-
-The server re-validates every deletion target against a fresh scanner run at execution time. Client-supplied risk/size/reason values are never trusted as authoritative.
-
-## Nebius + NVIDIA Integration
-
-This project integrates the Nebius Token Factory API with NVIDIA Nemotron for explainable workspace recommendations.
-
-- **Nebius Token Factory** endpoint: `https://api.tokenfactory.us-central1.nebius.com/v1/`
-- **Model**: `nvidia/nemotron-3-super-120b-a12b`
-- Real runtime calls to Nebius Token Factory in the analysis and chat endpoints
-- AI provider abstraction (NebiusProvider / MockProvider) — mock is used only when no API key is configured
-
-Only a successful live Nebius analysis can authorize the normal cleanup-plan workflow. The mock provider is identified and cannot authorize deletion. Provider availability reported by the API means credentials are configured; it does not by itself prove that a live request succeeded.
-
-## Quick Start
-
-```bash
-# Backend
-cd backend
-pip install -r requirements.txt
-# Set your NEBIUS_API_KEY in the environment (see .env.example)
-uvicorn main:app --reload
-
-# Frontend
-cd frontend
-npm install
-npm run dev
+```powershell
+Set-Location 'C:\path\to\DevSweep-AI-WarriorHacks'
+$env:DEVSWEEP_WORKSPACE_ROOT = (Resolve-Path .).Path
+Set-Location .\backend
+..\.venv\Scripts\python.exe -m uvicorn main:app --reload --host 127.0.0.1 --port 8000
 ```
 
-## Environment Variables
+Terminal 2 — frontend:
 
-| Variable | Description | Required |
-|----------|-------------|----------|
-| `NEBIUS_API_KEY` | Nebius Token Factory API key | For real AI analysis |
-| `NEBIUS_BASE_URL` | API base URL (default: https://api.tokenfactory.us-central1.nebius.com/v1/) | No |
-| `NEBIUS_MODEL` | Model name (default: nvidia/nemotron-3-super-120b-a12b) | No |
-| `DEVSWEEP_WORKSPACE_ROOT` | Root directory to scan (default: current dir) | No |
-| `DEVSWEEP_DB_PATH` | SQLite application-history file (default: `./data/devsweep.db`, relative to the configured workspace root) | No |
-| `DEVSWEEP_BACKUP_ROOT` | Verified content-backup directory (default: per-user application data directory; must be outside scanned project trees) | No |
-| `DEVSWEEP_DEMO_MODE` | Force the mock provider for non-destructive development (true/false) | No |
-| `BACKEND_HOST` | Loopback bind address (default: `127.0.0.1`; non-loopback values are rejected until remote authentication exists) | No |
-
-## Demo Mode
-
-The synthetic demo project fixture is generated locally with repeatable files and sizes. Its total size is measured by the scanner at run time; candidate counts can vary as patterns change:
-
-```bash
-python generate_demo.py          # generate/reset demo data
-uvicorn main:app --reload        # from backend/
-# POST /api/scan/demo/reset also regenerates on demand
+```powershell
+Set-Location 'C:\path\to\DevSweep-AI-WarriorHacks\frontend'
+npm.cmd run dev -- --host 127.0.0.1
 ```
 
-The fixture uses synthetic data and includes protected source/configuration files, a temporary artifact, regenerable outputs, and an unclassified directory for review. Generate or reset it with `python generate_demo.py` from the repository root. See [docs/DEMO.md](docs/DEMO.md) for the complete workflow and timed recording script.
+Open the local URL Vite prints (usually `http://127.0.0.1:5173`). In PowerShell, `npm.cmd` avoids execution-policy errors that can block `npm.ps1`. If port 8000 is already occupied, check for an existing backend before starting another one.
 
-Set `DEVSWEEP_WORKSPACE_ROOT` to this repository's absolute path before starting the backend so the built-in demo project is inside the configured workspace boundary.
+See [the complete synthetic demo walkthrough](docs/DEMO.md) for fixture reset, review and restore steps, recording guidance, and limitations.
 
-## Safety and Limitations
+## Configuration
 
-- Scanner findings are deterministic; AI recommendations are separate and cannot authorize filesystem access.
-- Cleanup paths must be discovered by the scanner, remain inside the authorized workspace, pass protected-path and risk checks, and receive explicit approval.
-- Approved deletions are backed up and SHA-256 verified first. Restore is available only for completed deletions with a verified backup, requires approval, and does not overwrite existing files.
-- Backups are unencrypted, have no automatic retention, and do not preserve ownership or platform ACLs. Directory restore can be partial if the filesystem fails.
-- The detector recognizes a bounded set of common artifact names and project types. External-workspace grant controls are currently API-only.
-- Without a valid Nebius key, mock analysis remains available for non-destructive development, but no executable cleanup plan can be created.
-- Post-cleanup verification checks recorded filesystem state; it does not automatically run the project's build or tests.
+| Variable | Purpose | Default |
+| --- | --- | --- |
+| `NEBIUS_API_KEY` | Nebius Token Factory credential for live model requests | unset |
+| `NEBIUS_BASE_URL` | OpenAI-compatible provider base URL | `https://api.tokenfactory.us-central1.nebius.com/v1/` |
+| `NEBIUS_MODEL` | Model used for recommendations and agent chat | `nvidia/nemotron-3-super-120b-a12b` |
+| `DEVSWEEP_WORKSPACE_ROOT` | Workspace boundary for project access | backend working directory |
+| `DEVSWEEP_DB_PATH` | SQLite application history location | `./data/devsweep.db` |
+| `DEVSWEEP_BACKUP_ROOT` | Separate verified backup store | per-user application data folder |
+| `DEVSWEEP_DEMO_MODE` | Force mock provider for non-destructive development | `false` |
 
-See [docs/DEVPOST_DRAFT.md](docs/DEVPOST_DRAFT.md) for the submission write-up and [docs/DEMO.md](docs/DEMO.md) for demo instructions.
+See [.env.example](.env.example) and [backend/config.py](backend/config.py) for configuration details.
 
-## Local Workspace Security
+## Development checks
 
-The backend is local-first and binds to `127.0.0.1` by default. `BACKEND_HOST` accepts only `localhost` or a loopback IP address. Non-loopback/LAN binding is rejected because this application does not provide remote authentication. CORS restricts browser origins to local development origins; CORS is not authentication or authorization.
+Run from the repository root:
 
-Project paths are canonicalized by the backend. Paths inside `DEVSWEEP_WORKSPACE_ROOT` need no separate grant. External folders require an explicit, folder-scoped grant created by the local user through `POST /api/access/grants`.
-
-The response contains an opaque `grant_id`. Pass it as `access_grant_id` with project scan, AI analysis/chat, and direct plan-generation requests. A successful AI analysis binds its one-use analysis authorization to the same project and grant. Verification accepts the grant ID in its JSON body; execution revalidates the authorization retained with the plan. Revoke a grant with `DELETE /api/access/grants/{grant_id}`. A grant is scoped to one canonical directory, expires after one hour, is invalidated if that directory identity changes, and is held only in process memory; backend restart revokes all grants.
-
-The built-in UI does not yet provide grant creation/revocation controls. External-folder access is available through the backend API/OpenAPI interface; the ordinary in-workspace UI flow is unchanged. Demo scanning/reset also observes the workspace boundary; if the fixed demo folder is outside the configured root, explicitly grant that exact folder first. `/api/scan/demo/reset` regenerates demo fixture data and should only be invoked intentionally.
-
-## Persistent History
-
-Projects, successful scan summaries, cleanup plans/items, execution outcomes, protected-file existence metadata, verification results, content-backup manifests, and restore outcomes are stored in the SQLite database configured by `DEVSWEEP_DB_PATH`. The backend runs versioned schema initialization at startup. Existing databases are inspected and backed up with SQLite's backup API before schema upgrades; ambiguous/incompatible schemas fail startup without being modified. External access grants and one-use AI analysis authorizations are never stored. Historical cleanup plans are review-only after a restart and cannot authorize execution. Protected-file metadata records existence checks only; this is not a content backup and does not make files recoverable.
-
-### Content backups and restoration
-
-Before deleting an approved `SAFE` item, or a `CAUTION` item with explicit approval, the backend saves its file contents under `DEVSWEEP_BACKUP_ROOT` and verifies a SHA-256 manifest. The default is `%LOCALAPPDATA%/DevSweepAI/backups` on Windows and the user's application-data directory on other platforms. Configure an alternate location only when it is outside every project tree that may be scanned or cleaned. Backups are not automatically pruned; manage their storage deliberately. Candidates containing symlinks, junctions, reparse points, unsupported objects, or changed content fail closed and are not deleted.
-
-The Restore Center lists only verified backups whose corresponding cleanup outcome is recorded complete. Restoration requires the same currently authorized project identity and explicit confirmation. Existing destinations are never overwritten. Directory restores can be partial if the filesystem fails mid-write; those outcomes are recorded and must be inspected before retrying. Backup manifests retain content hashes, sizes, relative paths, file mode, and modification time; ownership and platform-specific ACLs are not preserved. Backup contents are not encrypted by DevSweep; the default Windows location inherits the current user's application-data permissions. Backups contain real project data and should be protected like the original workspace. Do not configure a shared or untrusted backup location.
-
-## Project Structure
-
-The API also denies requests if a server runner bypasses the host setting and exposes a wildcard/non-loopback listener. Do not place an unauthenticated remote reverse proxy in front of the backend.
-
-```
-DevSweepAI/
-├── backend/
-│   ├── ai/                 # AI provider abstraction, Nebius client, prompts, routes
-│   ├── scanner/            # Project detection, framework detection, candidates
-│   ├── cleanup/            # Cleanup engine, plan generator, verification
-│   ├── tools/              # Filesystem/git tools with protection allowlists
-│   ├── persistence/        # Versioned SQLite history schema and repositories
-│   ├── tests/              # Unit + integration tests
-│   ├── main.py             # FastAPI entry point
-│   ├── config.py           # Configuration management
-│   └── requirements.txt
-├── frontend/
-│   ├── src/
-│   │   ├── components/     # Reusable UI components
-│   │   ├── pages/          # Page components
-│   │   ├── context/        # React context providers
-│   │   └── types/          # TypeScript types
-│   ├── package.json
-│   ├── vite.config.ts
-│   └── tailwind.config.js
-├── demo-project/           # Demo fixture (generated locally, gitignored)
-├── generate_demo.py        # Deterministic demo data generator
-├── .gitignore
-├── .env.example
-└── LICENSE
+```powershell
+Set-Location .\backend
+..\.venv\Scripts\python.exe -m pytest -q -p no:cacheprovider
+Set-Location ..\frontend
+npm.cmd test
+npm.cmd run build
 ```
 
-## API Endpoints
+## Project layout
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/health` | Health check with AI provider status |
-| POST | `/api/access/grants` | Grant temporary access to one external project folder |
-| DELETE | `/api/access/grants/{grant_id}` | Revoke a folder grant |
-| POST | `/api/scan/` | Scan a workspace path |
-| GET | `/api/scan/demo` | Scan the demo project |
-| POST | `/api/scan/demo/reset` | Regenerate demo data |
-| POST | `/api/ai/analyze` | AI analysis (scan → Nemotron → validated recommendations) |
-| POST | `/api/ai/chat` | Chat with the AI agent |
-| GET | `/api/ai/models` | Current AI provider/model info |
-| POST | `/api/cleanup/generate-plan` | Generate cleanup plan (AI-validated) |
-| POST | `/api/cleanup/execute` | Execute approved plan (with scanner allowlist re-validation) |
-| POST | `/api/cleanup/verify` | Verify project health after cleanup |
-| GET | `/api/cleanup/history/projects` | Persistent project metadata and current path availability |
-| GET | `/api/cleanup/history/scans` | Persistent successful scan history |
-| GET | `/api/cleanup/history/plans` | Historical plans, always review-only through this endpoint |
-| GET | `/api/cleanup/history/executions` | Persistent execution outcomes and verification metadata |
-| GET | `/api/cleanup/history/summary` | Persistent record counts for the dashboard |
-| GET | `/api/cleanup/backups` | Verified backup items from completed cleanup operations |
-| POST | `/api/cleanup/restore` | Restore one verified item (requires project path and explicit approval) |
-| GET | `/api/cleanup/restore/history` | Persistent restore outcomes |
+```text
+backend/       FastAPI routes, scanner, safety engine, backups, SQLite history
+frontend/      React, TypeScript, Vite interface and tests
+demo-project/  Local-only synthetic fixture, generated by generate_demo.py
+docs/          Setup, demo, and hackathon submission materials
+generate_demo.py
+```
 
-## Verification in this environment
+The demo fixture is generated locally and ignored by Git. Resetting it does not reset application history or delete verified backups. Do not use the real repository as a destructive demo target.
 
-- Backend: `python -m pytest -q -p no:cacheprovider` — 103 passed, 2 skipped, 1 Pydantic deprecation warning. The skipped tests need symlink/junction creation unavailable in this Windows environment.
-- Frontend: `npm test -- --reporter=dot` — 58 passed across 11 files.
-- Production frontend build: `npm run build` — passed (TypeScript and Vite; 1,591 modules transformed).
-- Local API: `/health` returned healthy. The generated synthetic demo scan found 9 candidates totaling 144,989,850 bytes estimated (138.3 MB as formatted by the app).
-- Demo reset: the API regenerated the fixture and the subsequent scan returned the same 9 candidates and byte total. Mock analysis returned `ai_used=false`, and a plan request without successful live analysis was rejected with HTTP 403.
-- The configured provider was mock because no Nebius key was available. Live inference, AI-authorized cleanup, and the full browser-driven cleanup/restore flow were not verified. No cleanup was performed during this run.
+## Current submission status
+
+The repository includes the application, reproducible synthetic fixture generator, demo walkthrough, submission draft, and demo production notes. **Genuine screenshots and a final demo video are not currently included**; capture them from the live app and add the verified links before claiming those deliverables in a submission. See the evidence and remaining steps in [docs/DEVPOST_DRAFT.md](docs/DEVPOST_DRAFT.md).
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) for details.
+MIT. See [LICENSE](LICENSE).

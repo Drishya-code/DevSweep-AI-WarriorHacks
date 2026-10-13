@@ -269,13 +269,13 @@ export function Settings() {
             <Github className="w-4 h-4 text-devsweep-textMuted" />
             <span>NVIDIA on GitHub</span>
           </a>
-          <a href="https://github.com/" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 px-4 py-2 bg-devsweep-bg border border-devsweep-border rounded-lg hover:border-devsweep-accent/50 transition-colors">
+          <a href="https://github.com/Drishya-code/DevSweep-AI-WarriorHacks" target="_blank" rel="noopener noreferrer" aria-label="Open the DevSweep AI WarriorHacks repository on GitHub" className="flex items-center gap-2 px-4 py-2 bg-devsweep-bg border border-devsweep-border rounded-lg hover:border-devsweep-accent/50 transition-colors">
             <Github className="w-4 h-4 text-devsweep-textMuted" />
-            <span>DevSweep Repository</span>
+            <span>DevSweep AI WarriorHacks Repository</span>
           </a>
-          <a href="#" className="flex items-center gap-2 px-4 py-2 bg-devsweep-bg border border-devsweep-border rounded-lg hover:border-devsweep-accent/50 transition-colors">
+          <a href="https://github.com/Drishya-code/DevSweep-AI-WarriorHacks/tree/main/docs" target="_blank" rel="noopener noreferrer" aria-label="Open DevSweep AI documentation on GitHub" className="flex items-center gap-2 px-4 py-2 bg-devsweep-bg border border-devsweep-border rounded-lg hover:border-devsweep-accent/50 transition-colors">
             <ExternalLink className="w-4 h-4 text-devsweep-textMuted" />
-            <span>Documentation</span>
+            <span>Project Documentation</span>
           </a>
         </div>
       </div>

@@ -12,6 +12,7 @@ import { LoadingState } from '../components/ui/LoadingState'
 import { cn } from '../utils/helpers'
 import { apiErrorMessage, requestJson } from '../utils/api'
 import type { ScanResponse } from '../types/api'
+import { WorkspaceSelector } from '../components/WorkspaceSelector'
 
 type StoredProject = {
   project_id: string; project_path: string; name: string; project_type: string
@@ -61,7 +62,7 @@ export function Projects() {
     setError(null)
     setRetryProject(project)
     try {
-      const refreshed = await requestJson<ScanResponse>('/api/scan', {
+      const refreshed = await requestJson<ScanResponse>('/api/scan/', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -84,7 +85,7 @@ export function Projects() {
     { key: 'type', header: 'Type', render: scan => <span>{scan.project_type}</span> },
     { key: 'framework', header: 'Framework', render: scan => <span>{scan.framework || 'Not detected'}</span> },
     { key: 'metadata', header: 'Metadata', render: scan => <div className="space-y-1 text-xs"><p>{scan.language || 'Language not detected'}</p><p>{scan.package_manager || 'Package manager not detected'}</p></div> },
-    { key: 'scan', header: 'Latest scan data', render: scan => <div className="space-y-1 text-xs"><p>{scan.cleanup_candidates.length} candidates</p><p>{scan.total_recoverable_human} recoverable</p><p>{scan.has_git ? (scan.git_clean ? 'Git clean at scan' : 'Uncommitted at scan') : 'Git not detected'}</p></div> },
+    { key: 'scan', header: 'Latest scan data', render: scan => <div className="space-y-1 text-xs"><p>{scan.cleanup_candidates.length} candidates</p><p>{scan.total_recoverable_human} recoverable</p><p>{scan.git_status === 'unavailable' ? 'Git executable unavailable' : scan.git_status === 'detection_error' ? 'Git status unknown' : scan.has_git ? (scan.git_clean ? 'Git repository · clean' : 'Git repository · uncommitted changes') : 'Not a Git repository'}</p></div> },
     { key: 'actions', header: 'Action', align: 'right', render: scan => <Button size="sm" variant="secondary" onClick={() => refreshAndSelect(scan)} disabled={Boolean(selectingPath)} loading={selectingPath === scan.project_path} icon={<RefreshCw className="h-4 w-4" />}>Refresh & select</Button> },
   ]
 
@@ -94,6 +95,8 @@ export function Projects() {
         <div><h1 className="text-2xl font-bold">Projects</h1><p className="mt-1 text-devsweep-textSecondary">Projects scanned during this session, using the latest scan available for each path.</p></div>
         <Button onClick={() => navigate('/scan')} icon={<FolderGit2 className="h-4 w-4" />}>Open scan workspace</Button>
       </header>
+
+      <WorkspaceSelector />
 
       {error && <ErrorAlert title="Project could not be selected" message={error} dismissible onDismiss={() => setError(null)} action={retryProject ? { label: 'Retry', onClick: () => void refreshAndSelect(retryProject) } : undefined} />}
       {historyError && <ErrorAlert title="Saved project history unavailable" message={historyError} action={{ label: 'Retry', onClick: () => void loadStoredProjects() }} />}
@@ -138,7 +141,7 @@ export function Projects() {
                   <p className="text-devsweep-textSecondary">{project.cleanup_candidates.length} cleanup candidate{project.cleanup_candidates.length === 1 ? '' : 's'} · {project.total_recoverable_human} identified as recoverable in the last scan.</p>
                   <div className={cn('flex items-start gap-2 rounded-lg border p-3 text-xs', !project.has_git ? 'border-devsweep-border bg-devsweep-bgTertiary/50 text-devsweep-textSecondary' : project.git_clean ? 'border-devsweep-success/20 bg-devsweep-success/10 text-devsweep-success' : 'border-devsweep-warning/20 bg-devsweep-warning/10 text-devsweep-warning')}>
                     {!project.has_git ? <AlertCircle className="h-4 w-4 shrink-0" /> : project.git_clean ? <CheckCircle className="h-4 w-4 shrink-0" /> : <AlertCircle className="h-4 w-4 shrink-0" />}
-                    {project.has_git ? (project.git_clean ? 'Git working tree was clean at scan time.' : 'Uncommitted Git changes were present at scan time.') : 'Git metadata was not detected.'}
+                    {project.git_status === 'unavailable' ? 'Git executable was unavailable; scanning is still supported.' : project.git_status === 'detection_error' ? 'Git repository status could not be determined.' : project.has_git ? (project.git_clean ? 'Git working tree was clean at scan time.' : 'Uncommitted Git changes were present at scan time.') : 'Not a Git repository; scanning is still supported.'}
                   </div>
                 </div>
                 <div className="mt-4 flex justify-end"><Button size="sm" variant={isSelected ? 'primary' : 'secondary'} onClick={() => refreshAndSelect(project)} disabled={Boolean(selectingPath)} loading={selectingPath === project.project_path} icon={<RefreshCw className="h-4 w-4" />}>Refresh & select</Button></div>
@@ -147,7 +150,7 @@ export function Projects() {
           })}
         </div>
       )}
-      {projects.length > 0 && viewMode === 'technical' && currentProject && <Card><CardTitle as="h2">Selected project details</CardTitle><div className="mt-3 space-y-2 text-sm"><Detail label="Path" value={currentProject.project_path} /><Detail label="Project type" value={currentProject.project_type} /><Detail label="Framework" value={currentProject.framework} /><Detail label="Language" value={currentProject.language} /><Detail label="Package manager" value={currentProject.package_manager} /><Detail label="Git detected" value={currentProject.has_git ? 'Yes' : 'No'} />{currentProject.has_git && <Detail label="Git working tree at scan" value={currentProject.git_clean ? 'Clean' : 'Uncommitted changes'} />}<Detail label="Recoverable bytes reported" value={`${currentProject.total_recoverable_bytes} (${currentProject.total_recoverable_human})`} /><Detail label="Protected paths detected" value={currentProject.protected_paths.join(', ') || 'None reported'} />{currentProject.notes && <p className="pt-2 text-devsweep-textSecondary">{currentProject.notes}</p>}</div></Card>}
+      {projects.length > 0 && viewMode === 'technical' && currentProject && <Card><CardTitle as="h2">Selected project details</CardTitle><div className="mt-3 space-y-2 text-sm"><Detail label="Path" value={currentProject.project_path} /><Detail label="Workspace mode" value={currentProject.workspace_mode === 'demo' ? 'Demo Sandbox' : 'My Project'} /><Detail label="Project type" value={currentProject.project_type} /><Detail label="Framework" value={currentProject.framework} /><Detail label="Language" value={currentProject.language} /><Detail label="Package manager" value={currentProject.package_manager} /><Detail label="Git status" value={currentProject.git_status || (currentProject.has_git ? (currentProject.git_clean ? 'clean' : 'uncommitted') : 'not_repository')} /><Detail label="Recoverable bytes reported" value={`${currentProject.total_recoverable_bytes} (${currentProject.total_recoverable_human})`} /><Detail label="Protected paths detected" value={currentProject.protected_paths.join(', ') || 'None reported'} />{currentProject.notes && <p className="pt-2 text-devsweep-textSecondary">{currentProject.notes}</p>}</div></Card>}
     </div>
   )
 }

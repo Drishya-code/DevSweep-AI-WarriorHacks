@@ -13,11 +13,26 @@ from scanner.detector import (
     RiskLevel,
 )
 from config import settings
-from security.workspace_access import ProjectAccessError, authorize_project_path
+from security.workspace_access import ProjectAccessError, authorize_project_path, create_external_project_grant
 from persistence.database import persistence
 
 
 router = APIRouter(tags=["scanner"])
+
+
+def _demo_fixture_path() -> Path:
+    repo_root = Path(__file__).resolve().parents[2]
+    demo_path = repo_root / "demo-project"
+    if demo_path.is_symlink() or (hasattr(demo_path, "is_junction") and demo_path.is_junction()):
+        raise HTTPException(status_code=403, detail="Demo sandbox path is linked outside its fixture location.")
+    try:
+        if demo_path.resolve(strict=True) != demo_path:
+            raise HTTPException(status_code=403, detail="Demo sandbox path does not match its fixture location.")
+    except OSError as exc:
+        raise HTTPException(status_code=404, detail="Demo sandbox fixture is unavailable.") from exc
+    if not demo_path.is_dir():
+        raise HTTPException(status_code=404, detail="Demo sandbox fixture is unavailable.")
+    return demo_path
 
 
 class ScanRequest(BaseModel):
@@ -40,12 +55,14 @@ class ScanResponse(BaseModel):
     project_id: Optional[str] = None
     project_path: str
     access_grant_id: Optional[str] = None
+    workspace_mode: str = "user"
     project_type: str
     framework: str
     package_manager: str
     language: str
     has_git: bool
     git_clean: bool
+    git_status: str = "not_repository"
     cleanup_candidates: List[CleanupCandidateResponse]
     total_recoverable_bytes: int
     total_recoverable_human: str
@@ -97,12 +114,14 @@ async def scan_workspace(request: ScanRequest):
     response = ScanResponse(
         project_path=str(scan_path),
         access_grant_id=authorization.grant_id,
+        workspace_mode="demo" if scan_path == (Path(__file__).parent.parent.parent / "demo-project").resolve() else "user",
         project_type=analysis.project_type.value,
         framework=analysis.framework,
         package_manager=analysis.package_manager,
         language=analysis.language,
         has_git=analysis.has_git,
         git_clean=analysis.git_clean,
+        git_status=analysis.git_status,
         cleanup_candidates=candidates,
         total_recoverable_bytes=analysis.total_recoverable_bytes,
         total_recoverable_human=format_bytes(analysis.total_recoverable_bytes),
@@ -119,9 +138,17 @@ async def scan_workspace(request: ScanRequest):
 @router.get("/demo", response_model=ScanResponse)
 async def scan_demo(access_grant_id: Optional[str] = Query(default=None)):
     """Scan the demo project fixture."""
-    demo_path = Path(__file__).parent.parent.parent / "demo-project"
+    demo_path = _demo_fixture_path()
     try:
-        authorization = authorize_project_path(str(demo_path), access_grant_id)
+        demo_canonical = demo_path.resolve(strict=True)
+        if access_grant_id:
+            authorization = authorize_project_path(str(demo_canonical), access_grant_id)
+        else:
+            try:
+                authorization = authorize_project_path(str(demo_canonical))
+            except ProjectAccessError:
+                grant = create_external_project_grant(str(demo_canonical))
+                authorization = authorize_project_path(str(demo_canonical), grant.grant_id)
     except ProjectAccessError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
@@ -142,12 +169,14 @@ async def scan_demo(access_grant_id: Optional[str] = Query(default=None)):
     response = ScanResponse(
         project_path=str(authorization.canonical_path),
         access_grant_id=authorization.grant_id,
+        workspace_mode="demo",
         project_type=analysis.project_type.value,
         framework=analysis.framework,
         package_manager=analysis.package_manager,
         language=analysis.language,
         has_git=analysis.has_git,
         git_clean=analysis.git_clean,
+        git_status=analysis.git_status,
         cleanup_candidates=candidates,
         total_recoverable_bytes=analysis.total_recoverable_bytes,
         total_recoverable_human=format_bytes(analysis.total_recoverable_bytes),
@@ -175,21 +204,19 @@ async def reset_demo(access_grant_id: Optional[str] = Query(default=None)):
     import sys
     from pathlib import Path
     
-    # From backend/scanner/routes.py -> project root is 3 levels up
-    script_path = Path(__file__).parent.parent.parent / "generate_demo.py"
-    if not script_path.exists():
-        # Fallback to cwd
-        script_path = Path.cwd() / "generate_demo.py"
+    # The reset target is fixed to this source checkout's dedicated fixture.
+    repo_root = Path(__file__).resolve().parents[2]
+    script_path = repo_root / "generate_demo.py"
     if not script_path.exists():
         raise HTTPException(status_code=404, detail="Demo generation script not found")
 
-    demo_path = script_path.parent / "demo-project"
+    demo_path = _demo_fixture_path()
     try:
         authorization = authorize_project_path(str(demo_path), access_grant_id)
         authorization.revalidate()
     except ProjectAccessError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
-    
+    authorization.revalidate()
     result = subprocess.run([sys.executable, str(script_path)], capture_output=True, text=True, timeout=60)
     if result.returncode != 0:
         raise HTTPException(status_code=500, detail=f"Demo reset failed: {result.stderr}")

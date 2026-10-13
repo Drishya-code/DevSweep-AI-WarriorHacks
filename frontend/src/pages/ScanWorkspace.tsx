@@ -13,6 +13,7 @@ import { LoadingState } from '../components/ui/LoadingState';
 import { ErrorAlert } from '../components/ui/ErrorAlert';
 import { formatBytes, formatDuration, getRiskSemantics } from '../design-tokens';
 import { apiErrorMessage, requestJson } from '../utils/api';
+import { WorkspaceSelector } from '../components/WorkspaceSelector';
 import {
   Search,
   FolderOpen,
@@ -45,12 +46,14 @@ interface ScanResult {
   project_id?: string | null;
   project_path: string;
   access_grant_id?: string | null;
+  workspace_mode?: 'demo' | 'user';
   project_type: string;
   framework: string;
   package_manager: string;
   language: string;
   has_git: boolean;
   git_clean: boolean;
+  git_status?: 'clean' | 'uncommitted' | 'not_repository' | 'unavailable' | 'detection_error';
   cleanup_candidates: CleanupCandidate[];
   total_recoverable_bytes: number;
   total_recoverable_human: string;
@@ -121,28 +124,44 @@ export function ScanWorkspace() {
   const handleScan = useCallback(async (path?: string) => {
     setIsScanning(true);
     setError(null);
+    let registeredGrantId: string | undefined;
     try {
-      const data = await requestJson<ScanResult>('/api/scan', {
+      let targetPath = path?.trim() || currentProject?.project_path;
+      let accessGrantId = !path ? currentProject?.access_grant_id || undefined : undefined;
+      if (path?.trim()) {
+        const registration = await requestJson<{ grant_id: string; project_path: string }>('/api/access/grants', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ project_path: path.trim() }),
+        });
+        targetPath = registration.project_path;
+        accessGrantId = registration.grant_id;
+        registeredGrantId = registration.grant_id;
+      }
+      const data = await requestJson<ScanResult>('/api/scan/', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path }),
+        body: JSON.stringify({ path: targetPath, access_grant_id: accessGrantId }),
       });
       setAiAnalysisResult(null);
       handleScanComplete(data);
       setCurrentProject(data);
       addScanToHistory(data);
     } catch (err) {
+      if (registeredGrantId) {
+        try { await requestJson(`/api/access/grants/${encodeURIComponent(registeredGrantId)}`, { method: 'DELETE' }); } catch { /* an expired grant is harmless */ }
+      }
       setError(apiErrorMessage(err, viewMode));
     } finally {
       setIsScanning(false);
     }
-  }, [setIsScanning, handleScanComplete, setCurrentProject, addScanToHistory, viewMode]);
+  }, [currentProject, setIsScanning, handleScanComplete, setCurrentProject, addScanToHistory, viewMode]);
 
   const handleDemoScan = useCallback(async () => {
     setIsScanning(true);
     setError(null);
     try {
-      const data = await requestJson<ScanResult>('/api/scan/demo');
+      const query = currentProject?.workspace_mode === 'demo' && currentProject.access_grant_id ? `?access_grant_id=${encodeURIComponent(currentProject.access_grant_id)}` : '';
+      const data = await requestJson<ScanResult>(`/api/scan/demo${query}`);
       setAiAnalysisResult(null);
       handleScanComplete(data);
       setCurrentProject(data);
@@ -152,7 +171,7 @@ export function ScanWorkspace() {
     } finally {
       setIsScanning(false);
     }
-  }, [setIsScanning, handleScanComplete, setCurrentProject, addScanToHistory, viewMode]);
+  }, [currentProject, setIsScanning, handleScanComplete, setCurrentProject, addScanToHistory, viewMode]);
 
   const handleAnalyze = useCallback(async () => {
     if (!scanResult) return;
@@ -217,6 +236,7 @@ export function ScanWorkspace() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           project_path: scanResult.project_path,
+          access_grant_id: scanResult.access_grant_id,
           analysis_id: aiAnalysisResult.analysis_id,
           scan_id: scanResult.scan_id,
           items: selectedItems,
@@ -242,8 +262,11 @@ export function ScanWorkspace() {
   };
 
   const getSelectedStats = () => {
-    if (!aiAnalysisResult) return { count: 0, bytes: 0 };
-    const selected = aiAnalysisResult.candidates.filter(c => selectedCandidates.has(c.path) && c.action === 'DELETE');
+    const candidates = aiAnalysisResult?.candidates || scanResult?.cleanup_candidates.map(c => ({
+      ...c,
+      action: c.risk === 'DANGEROUS' ? 'KEEP' as const : 'DELETE' as const,
+    })) || [];
+    const selected = candidates.filter(c => selectedCandidates.has(c.path) && c.action === 'DELETE' && c.risk !== 'DANGEROUS');
     return {
       count: selected.length,
       bytes: selected.reduce((sum, c) => sum + c.size_bytes, 0),
@@ -251,7 +274,7 @@ export function ScanWorkspace() {
   };
 
   const canProceedToReview = scanResult !== null && scanResult.cleanup_candidates.length > 0;
-  const canProceedToConfirm = aiAnalysisResult !== null && aiAnalysisResult.ai_used && selectedCandidates.size > 0;
+  const canProceedToConfirm = aiAnalysisResult !== null && aiAnalysisResult.ai_used && getSelectedStats().count > 0;
 
   // Render Step 1: Scan
   const renderScanStep = () => (
@@ -290,7 +313,7 @@ export function ScanWorkspace() {
         {demoMode && (
           <div className="border-t border-devsweep-border pt-6">
             <p className="text-sm text-devsweep-textSecondary mb-3">
-              Or try the demo project (deterministic 2+ GB recoverable):
+              Or try the synthetic demo project (about 138 MB of generated cleanup candidates after reset):
             </p>
             <Button
               variant="secondary"
@@ -346,6 +369,7 @@ export function ScanWorkspace() {
 
     const deletableCandidates = candidates.filter(c => c.action === 'DELETE');
     const dangerousCandidates = candidates.filter(c => c.risk === 'DANGEROUS');
+    const selectedDeletableCount = deletableCandidates.filter(c => selectedCandidates.has(c.path)).length;
 
     const renderSimpleCandidate = (candidate: typeof candidates[0], index: number) => {
       const semantics = getRiskSemantics(candidate.risk);
@@ -457,7 +481,7 @@ export function ScanWorkspace() {
               </div>
               <div className="text-right">
                 <p className="text-2xl font-bold font-mono text-devsweep-success">{formatBytes(getSelectedStats().bytes)}</p>
-                <p className="text-xs text-devsweep-textMuted">Selected for Cleanup</p>
+                <p className="text-xs text-devsweep-textMuted">{aiAnalysisResult?.ai_used ? 'Selected for Cleanup' : 'Potential cleanup selected'}</p>
               </div>
             </div>
           </CardHeader>
@@ -468,12 +492,12 @@ export function ScanWorkspace() {
                   type="checkbox"
                   ref={(el) => {
                     if (el) {
-                      el.indeterminate = selectedCandidates.size > 0 && selectedCandidates.size < deletableCandidates.length;
+                      el.indeterminate = selectedDeletableCount > 0 && selectedDeletableCount < deletableCandidates.length;
                     }
                   }}
-                  checked={selectedCandidates.size === deletableCandidates.length && deletableCandidates.length > 0}
+                  checked={selectedDeletableCount === deletableCandidates.length && deletableCandidates.length > 0}
                   onChange={() => {
-                    if (selectedCandidates.size === deletableCandidates.length) {
+                    if (selectedDeletableCount === deletableCandidates.length) {
                       setSelectedCandidates(new Set());
                     } else {
                       setSelectedCandidates(new Set(deletableCandidates.map(c => c.path)));
@@ -539,19 +563,19 @@ export function ScanWorkspace() {
 
             <div className="pt-4 border-t border-devsweep-border flex items-center justify-between">
               <div className="text-sm text-devsweep-textSecondary">
-                {selectedCandidates.size} of {deletableCandidates.length} deletable items selected
+                {selectedDeletableCount} of {deletableCandidates.length} deletable items selected
                 {dangerousCandidates.length > 0 && (
                   <> · {dangerousCandidates.length} protected items excluded</>
                 )}
               </div>
               <Button
-                variant={selectedCandidates.size > 0 ? 'primary' : 'secondary'}
+                variant={selectedDeletableCount > 0 ? 'primary' : 'secondary'}
                 onClick={() => setCurrentStep('confirm')}
-                disabled={selectedCandidates.size === 0 || !aiAnalysisResult?.ai_used}
+                disabled={selectedDeletableCount === 0 || !aiAnalysisResult?.ai_used}
                 icon={<ChevronRight className="w-4 h-4" />}
                 iconPosition="right"
               >
-                {selectedCandidates.size === 0 ? 'Select items to continue' : 'Continue to Confirm'}
+                {selectedDeletableCount === 0 ? 'Select items to continue' : 'Continue to Confirm'}
               </Button>
             </div>
           </CardContent>
@@ -809,6 +833,7 @@ export function ScanWorkspace() {
 
   return (
     <div className="space-y-6 animate-in max-w-4xl">
+      <WorkspaceSelector />
       <div>
         <h1 className="text-2xl font-bold">Scan Workspace</h1>
         <p className="text-devsweep-textSecondary mt-1">Analyze a project for cleanup opportunities</p>

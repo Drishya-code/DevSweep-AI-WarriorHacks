@@ -10,9 +10,9 @@ import {
   RotateCcw,
   Bot,
   Settings,
-  Sparkles,
   X,
 } from 'lucide-react'
+import { BrandMark } from './BrandMark'
 
 const navigation = [
   { name: 'Dashboard', href: '/', icon: LayoutDashboard },
@@ -59,9 +59,7 @@ export function Sidebar({ mobileOpen = false, onNavigate, onClose }: { mobileOpe
       <div className="p-4 border-b border-devsweep-border">
         {mobileOpen && <button ref={closeButtonRef} type="button" onClick={onClose} className="float-right rounded-lg p-2 text-devsweep-textSecondary hover:bg-devsweep-bgTertiary hover:text-devsweep-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-devsweep-accent lg:hidden" aria-label="Close navigation menu"><X className="h-5 w-5" aria-hidden="true" /></button>}
         <NavLink to="/" className="flex items-center gap-3">
-          <div className="w-8 h-8 bg-devsweep-accent rounded-lg flex items-center justify-center">
-            <Sparkles className="w-5 h-5 text-devsweep-bg" />
-          </div>
+          <BrandMark />
           <div>
             <h1 className="font-semibold text-lg">DevSweep AI</h1>
             <p className="text-xs text-devsweep-textMuted">Clean. Keep. Restore.</p>

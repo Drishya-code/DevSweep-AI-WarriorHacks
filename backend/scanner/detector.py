@@ -37,6 +37,7 @@ class ProjectAnalysis:
     language: str
     has_git: bool
     git_clean: bool
+    git_status: str
     cleanup_candidates: List[CleanupCandidate]
     total_recoverable_bytes: int
     protected_paths: List[str]
@@ -527,29 +528,45 @@ def find_cleanup_candidates(root: Path, project_type: ProjectType) -> List[Clean
     return candidates
 
 
+def detect_git_status(path: Path) -> tuple[bool, bool, str]:
+    """Return whether a folder is in a repository and a conservative status label."""
+    import shutil
+    import subprocess
+
+    if not shutil.which("git"):
+        return False, False, "unavailable"
+    try:
+        repo = subprocess.run(
+            ["git", "-C", str(path), "rev-parse", "--show-toplevel"],
+            capture_output=True, text=True, timeout=5,
+        )
+    except FileNotFoundError:
+        return False, False, "unavailable"
+    except (OSError, subprocess.TimeoutExpired):
+        return False, False, "detection_error"
+    if repo.returncode != 0:
+        return False, False, "not_repository"
+    try:
+        status = subprocess.run(
+            ["git", "-C", str(path), "status", "--porcelain"],
+            capture_output=True, text=True, timeout=10,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return True, False, "detection_error"
+    if status.returncode != 0:
+        return True, False, "detection_error"
+    if status.stdout.strip():
+        return True, False, "uncommitted"
+    return True, True, "clean"
+
+
 def analyze_project(path: Path) -> ProjectAnalysis:
     """Perform full project analysis."""
     project_type = detect_project_type(path)
     framework = detect_framework(path, project_type)
     package_manager = detect_package_manager(path, project_type)
     language = detect_language(path, project_type)
-    has_git = (path / ".git").exists()
-    
-    # Real git status check
-    git_clean = True
-    if has_git:
-        try:
-            import subprocess
-            result = subprocess.run(
-                ["git", "status", "--porcelain"],
-                cwd=path,
-                capture_output=True,
-                text=True,
-                timeout=10
-            )
-            git_clean = len(result.stdout.strip()) == 0
-        except Exception:
-            git_clean = True  # Default to clean if git check fails
+    has_git, git_clean, git_status = detect_git_status(path)
 
     candidates = find_cleanup_candidates(path, project_type)
     total_recoverable = sum(c.size_bytes for c in candidates if c.risk in (RiskLevel.SAFE, RiskLevel.CAUTION))
@@ -563,6 +580,7 @@ def analyze_project(path: Path) -> ProjectAnalysis:
         language=language,
         has_git=has_git,
         git_clean=git_clean,
+        git_status=git_status,
         cleanup_candidates=candidates,
         total_recoverable_bytes=total_recoverable,
         protected_paths=protected,

@@ -37,7 +37,7 @@ def test_in_root_project_is_authorized_without_grant(workspace_pair):
 
 def test_external_project_requires_an_explicit_grant(workspace_pair):
     _, _, external = workspace_pair
-    with pytest.raises(ProjectAccessError, match="explicit folder grant"):
+    with pytest.raises(ProjectAccessError, match="explicit folder registration"):
         authorize_project_path(str(external))
 
     grant = create_external_project_grant(str(external))
@@ -50,7 +50,7 @@ def test_revoked_grant_no_longer_authorizes_project(workspace_pair):
     _, _, external = workspace_pair
     grant = create_external_project_grant(str(external))
     assert external_project_grants.revoke(grant.grant_id)
-    with pytest.raises(ProjectAccessError, match="explicit folder grant"):
+    with pytest.raises(ProjectAccessError, match="registration is invalid or expired"):
         authorize_project_path(str(external), grant.grant_id)
 
 
@@ -95,7 +95,7 @@ def test_replacing_a_granted_directory_invalidates_its_identity(workspace_pair, 
         authorize_project_path(str(external), grant.grant_id)
 
 
-def test_symlink_escape_requires_grant_and_replacement_is_rejected(workspace_pair, tmp_path):
+def test_symlink_escape_is_rejected_even_when_target_has_a_grant(workspace_pair, tmp_path):
     workspace, _, external = workspace_pair
     other = tmp_path / "other-project"
     other.mkdir()
@@ -121,13 +121,14 @@ def test_symlink_escape_requires_grant_and_replacement_is_rejected(workspace_pai
         authorize_project_path(str(alias))
 
     grant = create_external_project_grant(str(external))
-    authorize_project_path(str(alias), grant.grant_id)
+    with pytest.raises(ProjectAccessError, match="symlink or junction cannot escape"):
+        authorize_project_path(str(alias), grant.grant_id)
     if os.name == "nt":
         os.rmdir(alias)
     else:
         alias.unlink()
     create_directory_link(other)
-    with pytest.raises(ProjectAccessError, match="different project"):
+    with pytest.raises(ProjectAccessError, match="symlink or junction cannot escape"):
         authorize_project_path(str(alias), grant.grant_id)
 
 
@@ -164,7 +165,7 @@ def test_routes_reject_ungranted_external_paths_at_sensitive_entry_points(worksp
     client = TestClient(app)
     path = str(external)
 
-    assert client.post("/api/scan", json={"path": path}).status_code == 403
+    assert client.post("/api/scan/", json={"path": path}).status_code == 403
     assert client.post("/api/ai/analyze", json={"project_path": path}).status_code == 403
     assert client.post("/api/ai/chat", json={"message": "summarize", "project_path": path}).status_code == 403
     assert client.post("/api/cleanup/generate-plan", json={"project_path": path}).status_code == 403
@@ -185,7 +186,7 @@ def test_grant_endpoint_returns_scoped_token_and_revoke_endpoint_invalidates_it(
     assert grant["project_path"] == str(external.resolve())
     assert grant["expires_in_seconds"] > 0
 
-    scan_response = client.post("/api/scan", json={
+    scan_response = client.post("/api/scan/", json={
         "path": str(external),
         "access_grant_id": grant["grant_id"],
     })
@@ -194,10 +195,69 @@ def test_grant_endpoint_returns_scoped_token_and_revoke_endpoint_invalidates_it(
 
     revoke_response = client.delete(f"/api/access/grants/{grant['grant_id']}")
     assert revoke_response.status_code == 204
-    assert client.post("/api/scan", json={
+    assert client.post("/api/scan/", json={
         "path": str(external),
         "access_grant_id": grant["grant_id"],
     }).status_code == 403
+
+
+def test_in_root_workspace_can_be_explicitly_registered_and_grant_is_project_scoped(workspace_pair):
+    from main import app
+
+    workspace, inside, _ = workspace_pair
+    other = workspace / "other-project"
+    other.mkdir()
+    client = TestClient(app)
+    registered = client.post("/api/access/grants", json={"project_path": str(inside)})
+    assert registered.status_code == 201
+    token = registered.json()["grant_id"]
+    selected = client.post("/api/scan/", json={"path": str(inside), "access_grant_id": token})
+    assert selected.status_code == 200
+    assert selected.json()["access_grant_id"] == token
+    assert client.post("/api/scan/", json={"path": str(other), "access_grant_id": token}).status_code == 403
+
+
+def test_two_registered_synthetic_projects_scan_independently(workspace_pair):
+    from main import app
+
+    workspace, first, _ = workspace_pair
+    second = workspace / "second-project"
+    second.mkdir()
+    (first / "package.json").write_text('{"name":"first"}', encoding="utf-8")
+    (first / "node_modules").mkdir()
+    (first / "node_modules" / "fixture.js").write_text("first", encoding="utf-8")
+    (second / "pyproject.toml").write_text("[project]\nname='second'\n", encoding="utf-8")
+    (second / "dist").mkdir()
+    (second / "dist" / "fixture.bin").write_bytes(b"second")
+    client = TestClient(app)
+
+    def register_and_scan(project):
+        registration = client.post("/api/access/grants", json={"project_path": str(project)})
+        assert registration.status_code == 201
+        token = registration.json()["grant_id"]
+        response = client.post("/api/scan/", json={"path": str(project), "access_grant_id": token})
+        assert response.status_code == 200, response.text
+        return response.json()
+
+    first_scan = register_and_scan(first)
+    second_scan = register_and_scan(second)
+    assert first_scan["project_path"] == str(first.resolve())
+    assert [item["path"] for item in first_scan["cleanup_candidates"]] == ["node_modules"]
+    assert second_scan["project_path"] == str(second.resolve())
+    assert [item["path"] for item in second_scan["cleanup_candidates"]] == ["dist"]
+    assert second_scan["has_git"] is False
+    assert second_scan["git_status"] == "not_repository"
+
+
+def test_invalid_requested_path_never_scans_previous_registered_project(workspace_pair):
+    from main import app
+
+    _, inside, _ = workspace_pair
+    client = TestClient(app)
+    missing = inside.parent / "missing-project"
+    response = client.post("/api/scan/", json={"path": str(missing)})
+    assert response.status_code == 404
+    assert not missing.exists()
 
 
 def test_revoked_external_project_plan_cannot_execute(workspace_pair):

@@ -45,7 +45,7 @@ describe('Projects', () => {
   it('shows simple project cards with scan status and selection state', () => {
     renderPage({ currentProject: project, scanHistory: [project, { ...project, framework: 'old' }] })
     expect(screen.getByRole('heading', { name: 'demo-app' })).toBeInTheDocument()
-    expect(screen.getByText('C:\\work\\demo-app')).toBeInTheDocument()
+    expect(screen.getAllByText('C:\\work\\demo-app').length).toBeGreaterThan(0)
     expect(screen.getByText('Git working tree was clean at scan time.')).toBeInTheDocument()
     expect(screen.getByText('Selected')).toBeInTheDocument()
     expect(screen.getAllByText('react')).toHaveLength(1)
@@ -71,7 +71,7 @@ describe('Projects', () => {
       expect(addScanToHistory).toHaveBeenCalledWith({ ...project, git_clean: false })
       expect(mockNavigate).toHaveBeenCalledWith('/')
     })
-    expect(global.fetch).toHaveBeenCalledWith('/api/scan', expect.objectContaining({ method: 'POST', body: JSON.stringify({ path: project.project_path }) }))
+    expect(global.fetch).toHaveBeenCalledWith('/api/scan/', expect.objectContaining({ method: 'POST', body: JSON.stringify({ path: project.project_path }) }))
   })
 
   it('reports missing or inaccessible project paths and leaves selection unchanged', async () => {
