@@ -165,6 +165,7 @@ class CleanupItemRequest(BaseModel):
 class CleanupPlanRequest(BaseModel):
     items: List[CleanupItemRequest]
     project_path: str
+    access_grant_id: Optional[str] = None
     analysis_id: Optional[str] = None
     approved: bool = False
     scan_id: Optional[str] = None
@@ -236,13 +237,22 @@ def get_effective_risk(item: CleanupItem) -> RiskLevel:
 @router.post("/plan", response_model=CleanupPlanResponse)
 async def create_cleanup_plan(request: CleanupPlanRequest):
     """Create a cleanup plan from scan results."""
-    # Require a successful Nebius analysis for this exact project. Use server-side
-    # analysis data so client-supplied risks/actions cannot replace AI output.
-    from ai.routes import take_verified_analysis
-    verified = take_verified_analysis(request.analysis_id or "", Path(request.project_path))
-    if not verified:
-        raise HTTPException(status_code=403, detail="Successful Nebius analysis is required before creating a cleanup plan.")
-    authorization: ProjectAuthorization = verified["authorization"]
+    # A live analysis may add recommendations, but it is optional. Without one,
+    # build a review plan from a fresh deterministic scan. In either mode the
+    # backend owns candidate paths, risk, action, and size; mock/client output
+    # cannot supply deletion authority.
+    verified = None
+    if request.analysis_id:
+        from ai.routes import take_verified_analysis
+        verified = take_verified_analysis(request.analysis_id, Path(request.project_path))
+        if not verified:
+            raise HTTPException(status_code=403, detail="Verified live analysis is unavailable or expired.")
+        authorization: ProjectAuthorization = verified["authorization"]
+    else:
+        try:
+            authorization = authorize_project_path(request.project_path, request.access_grant_id)
+        except ProjectAccessError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
     try:
         authorization.revalidate()
     except ProjectAccessError as exc:
@@ -257,36 +267,30 @@ async def create_cleanup_plan(request: CleanupPlanRequest):
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
     scanner_candidate_map = {c.path: c for c in analysis.cleanup_candidates}
 
-    verified_candidates = {c["path"]: c for c in verified["candidates"]}
-    # The client may select analyzed paths, but risk/action/reason/size come from
-    # the server's verified analysis result.
+    verified_candidates = {c["path"]: c for c in verified["candidates"]} if verified else {}
+    # The client selects paths only. Live advice is used only when the backend
+    # holds a one-use verified analysis; otherwise scanner data is authoritative.
     items = []
     for item_req in request.items:
-        ai_candidate = verified_candidates.get(item_req.path)
-        if ai_candidate is None:
-            raise HTTPException(status_code=400, detail=f"Path '{item_req.path}' was not part of the verified AI analysis.")
-        if item_req.path not in scanner_candidate_map:
+        scanner_candidate = scanner_candidate_map.get(item_req.path)
+        if scanner_candidate is None:
             raise HTTPException(status_code=400, detail=f"Path '{item_req.path}' not found in authoritative scanner results.")
-        if ai_candidate["action"] != "DELETE":
+        if scanner_candidate.risk == RiskLevel.DANGEROUS:
+            raise HTTPException(status_code=400, detail=f"Path '{item_req.path}' is blocked by the authoritative scanner risk classification.")
+        ai_candidate = verified_candidates.get(item_req.path)
+        if verified and ai_candidate is None:
+            raise HTTPException(status_code=400, detail=f"Path '{item_req.path}' was not part of the verified AI analysis.")
+        if ai_candidate and ai_candidate["action"] != "DELETE":
             continue
-        # Re-scan authoritative risk check: client-supplied risk/scanner_risk CANNOT override real scanner
-        if item_req.path in scanner_candidate_map:
-            authoritative_scanner_risk = scanner_candidate_map[item_req.path].risk.value
-        else:
-            # Reject unknown paths that are not in authoritative scanner results
-            raise HTTPException(
-                status_code=400,
-                detail=f"Path '{item_req.path}' not found in authoritative scanner results. Only scanner-validated paths may be included in a cleanup plan."
-            )
-
-        ai_risk = ai_candidate.get("ai_risk")
+        authoritative_scanner_risk = scanner_candidate.risk.value
+        ai_risk = ai_candidate.get("ai_risk") if ai_candidate else None
 
         items.append(CleanupItem(
             path=item_req.path,
-            action=ActionType(ai_candidate["action"]),
+            action=ActionType(ai_candidate["action"] if ai_candidate else "DELETE"),
             risk=RiskLevel(authoritative_scanner_risk),
-            reason=ai_candidate["reason"],
-            estimated_bytes=ai_candidate["size_bytes"],
+            reason=ai_candidate["reason"] if ai_candidate else scanner_candidate.reason,
+            estimated_bytes=ai_candidate["size_bytes"] if ai_candidate else scanner_candidate.size_bytes,
             regeneration_command=item_req.regeneration_command,
             ai_risk=RiskLevel(ai_risk) if ai_risk else None,
         ))

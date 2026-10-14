@@ -41,3 +41,18 @@ The accompanying `verification-report.md` records the previously completed live 
 ## Remaining production requirement
 
 To complete the MP4, run a permitted desktop recorder against the real browser during a fresh or reset synthetic demo, then export with a locally available MP4 editor/encoder. Review the entire recording for secrets and private paths before sharing it. Do not record cleanup against the real project.
+
+## Supplied-footage production check (2026-10-13)
+
+The two supplied desktop videos were left unchanged. Windows media metadata and decoded playback checks reported:
+
+| File | Duration | Video | Audio stream | Size |
+|---|---:|---|---|---:|
+| `1.mp4` | 4:46.8 | 1280×720, 30 fps | 2-channel stream present; content not audited | 12,320,338 bytes |
+| `2.mp4` | 0:21.4 | 1280×720, 30 fps | 2-channel stream present; content not audited | 864,182 bytes |
+
+Visual spot checks of `1.mp4` found the OBS Studio window at 0:00, 1:30, 2:15, 3:00, and 3:50, and a genuine scan-review screen near 0:45. The scan view includes a visible `clideo.com` watermark. `2.mp4` shows the DevSweep AI Settings page. These clips do not show the complete cleanup, verification, and restore workflow in a coherent sequence, so the previously documented live workflow evidence cannot be presented as if it were recorded in these clips.
+
+A complete edited MP4 was not exported. FFmpeg/FFprobe and a usable MP4 editing/export interface are unavailable in this environment. OBS is installed, but its control endpoint is not configured; I did not interrupt or repurpose the running OBS session. The Windows speech API still refuses synthesis under the current security setting (“No voice installed on the system or none available with the current security setting”), so no narration audio was created. The supplied MP4 files contain audio streams, but their contents were not assessed or used. The existing narration draft and SRT remain drafts and are not synchronized to these recordings. No screenshots or footage were fabricated, no source recordings were overwritten, and no application source code was changed.
+
+**Release status:** `DevSweep-AI-Demo.mp4` and `narration-audio.wav` were not created. The supplied recordings need a fresh, coherent capture of the synthetic demo workflow and an available editor/encoder before the requested finished video can be honestly delivered.

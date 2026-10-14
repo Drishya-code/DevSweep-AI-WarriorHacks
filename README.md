@@ -9,6 +9,7 @@ DevSweep AI helps students and independent developers find storage-heavy project
 **WarriorHacks 2.0 · Code Hackathon project**
 
 - **Repository:** [Drishya-code/DevSweep-AI-WarriorHacks](https://github.com/Drishya-code/DevSweep-AI-WarriorHacks)
+- **Demo video:** [Watch DevSweep AI on YouTube](https://youtu.be/9oGs6lo1hrc)
 - **Demo guide:** [docs/DEMO.md](docs/DEMO.md)
 - **Submission draft and current evidence:** [docs/DEVPOST_DRAFT.md](docs/DEVPOST_DRAFT.md)
 - **Demo production notes:** [docs/submission/demo/](docs/submission/demo/)
@@ -26,7 +27,7 @@ Project installs, build outputs, caches, logs, and temporary files can consume s
 5. Approve cleanup explicitly. The backend saves and verifies a content backup before removing each item.
 6. Inspect execution and project-integrity results separately. Restore a verified backup only after approval, and never overwrite an existing destination.
 
-The model recommends; deterministic backend checks and the user govern filesystem changes. A configured provider is not proof of live inference: the application reports live analysis only after a real request succeeds. Mock responses cannot authorize cleanup.
+The model may recommend; deterministic backend checks and the user govern filesystem changes. A fresh deterministic scan can create a review-only plan without AI. A configured provider is not proof of live inference: the application reports live analysis only after a real request succeeds. Mock output is not used to select plan contents.
 
 ## Safety model
 
@@ -40,29 +41,41 @@ The model recommends; deterministic backend checks and the user govern filesyste
 
 ## Run locally
 
-Requirements: Python 3.10 or later, Node.js/npm, and Git for Git status detection. Use two PowerShell terminals from the repository root.
+Requirements: Python 3.10 or later and Node.js 18 or later. Git is optional and enables Git status detection. No AI account or API key is required to explore scanning and deterministic review plans.
 
-Prepare dependencies and the synthetic fixture:
+### Windows quick start (no key required)
+
+Open PowerShell in the cloned repository and run:
+
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+.\Start-DevSweep.ps1
+```
+
+The script checks prerequisites, installs dependencies only when the backend environment or frontend packages are missing, creates the synthetic fixture only if absent, starts both services on loopback, opens the app, and stops them with `Ctrl+C`. It does not create or overwrite `.env`. If PowerShell blocks the first command, use a session-only policy with `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Start-DevSweep.ps1`. Add `-CheckOnly` to validate setup without starting services or `-SkipInstall` to prevent dependency installation.
+
+For optional live Nebius inference, create or edit the private root `.env` using [.env.example](.env.example) as a reference, set your own `NEBIUS_API_KEY`, then run `.\Start-DevSweep.ps1 -LiveAI`. The script never prints the key or sends it to the browser. A configured key alone does not prove inference; confirm a successful provider/model label after an analysis request.
+
+### Manual no-key setup
+
+From the repository root:
 
 ```powershell
 if (-not (Test-Path .\backend\.venv\Scripts\python.exe)) { py -m venv .\backend\.venv }
-.\backend\.venv\Scripts\python.exe -m pip install -r .\backend\requirements.txt
-Set-Location .\frontend
-npm.cmd ci
-Set-Location ..
-.\backend\.venv\Scripts\python.exe .\generate_demo.py
-if (-not (Test-Path .\.env)) { Copy-Item .\.env.example .\.env }
+ .\backend\.venv\Scripts\python.exe -m pip install -r .\backend\requirements.txt
+if (-not (Test-Path .\frontend\node_modules\vite\bin\vite.js)) { Push-Location .\frontend; npm.cmd ci; Pop-Location }
+if (-not (Test-Path .\demo-project)) { .\backend\.venv\Scripts\python.exe .\generate_demo.py }
 ```
-
-Set `DEVSWEEP_WORKSPACE_ROOT` in the root `.env` to this checkout's absolute path. Add a real `NEBIUS_API_KEY` there only if you intend to use live inference. Never commit `.env` or paste keys into screenshots, logs, or frontend variables.
 
 Terminal 1 — backend:
 
 ```powershell
 Set-Location 'C:\path\to\DevSweep-AI-WarriorHacks'
 $env:DEVSWEEP_WORKSPACE_ROOT = (Resolve-Path .).Path
+$env:DEVSWEEP_DEMO_MODE = 'true'
+$env:NEBIUS_API_KEY = ''
 Set-Location .\backend
-..\.venv\Scripts\python.exe -m uvicorn main:app --reload --host 127.0.0.1 --port 8000
+..\.venv\Scripts\python.exe -m uvicorn main:app --host 127.0.0.1 --port 8000
 ```
 
 Terminal 2 — frontend:
@@ -72,9 +85,9 @@ Set-Location 'C:\path\to\DevSweep-AI-WarriorHacks\frontend'
 npm.cmd run dev -- --host 127.0.0.1
 ```
 
-Open the local URL Vite prints (usually `http://127.0.0.1:5173`). In PowerShell, `npm.cmd` avoids execution-policy errors that can block `npm.ps1`. If port 8000 is already occupied, check for an existing backend before starting another one.
+Open `http://127.0.0.1:5173`. In PowerShell, `npm.cmd` avoids execution-policy errors that block `npm.ps1`. Check that an earlier service is not occupying port 8000 or 5173 before starting another.
 
-See [the complete synthetic demo walkthrough](docs/DEMO.md) for fixture reset, review and restore steps, recording guidance, and limitations.
+See [the complete synthetic demo walkthrough](docs/DEMO.md) for fixture reset, no-key cleanup, approval, restore steps, recording guidance, and limitations.
 
 ## Configuration
 
@@ -86,7 +99,7 @@ See [the complete synthetic demo walkthrough](docs/DEMO.md) for fixture reset, r
 | `DEVSWEEP_WORKSPACE_ROOT` | Workspace boundary for project access | backend working directory |
 | `DEVSWEEP_DB_PATH` | SQLite application history location | `./data/devsweep.db` |
 | `DEVSWEEP_BACKUP_ROOT` | Separate verified backup store | per-user application data folder |
-| `DEVSWEEP_DEMO_MODE` | Force mock provider for non-destructive development | `false` |
+| `DEVSWEEP_DEMO_MODE` | Force mock provider for non-destructive development | `true` in `.env.example`; launcher no-key default |
 
 See [.env.example](.env.example) and [backend/config.py](backend/config.py) for configuration details.
 
@@ -102,6 +115,8 @@ npm.cmd test
 npm.cmd run build
 ```
 
+**Verified for this revision (14 October 2026):** backend **126 passed, 3 skipped**; frontend **66 passed across 13 files**; production build **passed**. The backend emits an existing Pydantic class-based configuration deprecation warning. Frontend tests emit existing React Router future-flag and React `act(...)` warnings. The repository's `npm run lint` script currently fails because no ESLint configuration is present; TypeScript checking is included in the successful production build.
+
 ## Project layout
 
 ```text
@@ -114,9 +129,28 @@ generate_demo.py
 
 The demo fixture is generated locally and ignored by Git. Resetting it does not reset application history or delete verified backups. Do not use the real repository as a destructive demo target.
 
-## Current submission status
+## Real application screenshots
 
-The repository includes the application, reproducible synthetic fixture generator, demo walkthrough, submission draft, and demo production notes. **Genuine screenshots and a final demo video are not currently included**; capture them from the live app and add the verified links before claiming those deliverables in a submission. See the evidence and remaining steps in [docs/DEVPOST_DRAFT.md](docs/DEVPOST_DRAFT.md).
+These are genuine captures from the running DevSweep application. The gallery manifest identifies which entries are application screenshots and which are designed graphics, with context for each.
+
+| Dashboard | Scan and risk review | Live AI analysis |
+|---|---|---|
+| ![DevSweep dashboard](docs/submission/devpost-gallery/02-dashboard-live.png) | ![Workspace scan](docs/submission/devpost-gallery/03-workspace-scan.png) | ![Live AI analysis](docs/submission/devpost-gallery/04-live-ai-analysis.png) |
+
+See [the complete gallery](docs/submission/devpost-gallery/README.md) for more screenshots. The demo link above is the exact public URL supplied by the project owner. [Production notes](docs/submission/demo/production-notes.md) distinguish the YouTube upload from the source clips available in this repository and from earlier live workflow evidence.
+
+## Judge and submission references
+
+- [Windows and manual demo walkthrough](docs/DEMO.md)
+- [Judge quick guide (Markdown)](docs/submission/DevSweep-AI-Judges-Quick-Guide.md) · [PDF](docs/submission/DevSweep-AI-Judges-Quick-Guide.pdf)
+- [Devpost draft](docs/DEVPOST_DRAFT.md)
+- [Gallery and evidence manifest](docs/submission/devpost-gallery/gallery-manifest.md)
+- [Demo verification report](docs/submission/demo/verification-report.md)
+- [Demo video production notes](docs/submission/demo/production-notes.md)
+
+## Known limitations
+
+Live AI needs a judge's own Nebius key and network access. Artifact detection covers a bounded set of common patterns. External-folder grants are temporary. Backups are unencrypted and do not preserve ownership or platform ACLs. Verification checks filesystem and protected-file state; it does not run project builds or tests. Backing up large directories can take minutes. See [the demo guide](docs/DEMO.md) and [safety notes](docs/DEVPOST_DRAFT.md) for details.
 
 ## License
 

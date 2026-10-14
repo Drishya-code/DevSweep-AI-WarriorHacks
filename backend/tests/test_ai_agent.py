@@ -129,6 +129,25 @@ def test_plan_tool_uses_live_scoped_analysis_and_returns_review_only_plan(agent_
     assert _cleanup_plans[data["plan"]["plan_id"]]["execution_id"] is None
 
 
+def test_mock_agent_creates_deterministic_review_only_plan(agent_environment, monkeypatch):
+    import ai.routes as ai_routes
+    from ai.provider import MockProvider
+    from cleanup.routes import _cleanup_plans
+    monkeypatch.setattr(ai_routes, "get_ai_provider", lambda: MockProvider())
+
+    response = _chat(TestClient(app), agent_environment, "Create a cleanup plan for my current project")
+
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data["plan"]["plan_id"] in _cleanup_plans
+    item = data["plan"]["items"][0]
+    assert item["path"] == "node_modules"
+    assert item["risk"] == "SAFE"
+    assert item["ai_risk"] is None
+    assert _cleanup_plans[data["plan"]["plan_id"]]["execution_id"] is None
+    assert "Nothing was deleted" in data["response"]
+
+
 def test_unknown_execute_tool_is_rejected_without_running_cleanup(agent_environment, monkeypatch):
     import ai.routes as ai_routes
     provider = ScriptedNebiusProvider([

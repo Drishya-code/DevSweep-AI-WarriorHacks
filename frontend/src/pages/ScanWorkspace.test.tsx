@@ -248,7 +248,7 @@ describe('ScanWorkspace', () => {
     })
   })
 
-  it('shows error when AI analysis fails', async () => {
+  it('shows the actionable backend message when AI analysis cannot connect', async () => {
     ;(global.fetch as vi.Mock)
       .mockResolvedValueOnce({
         ...mockProjectRegistration,
@@ -260,7 +260,7 @@ describe('ScanWorkspace', () => {
       // Mock AI analysis failure
       .mockResolvedValueOnce({
         ok: false,
-        json: async () => ({ detail: 'AI analysis failed: ConnectionError' }),
+        json: async () => ({ detail: 'Could not connect to Nebius Token Factory. Check backend DNS, TLS, proxy, and outbound HTTPS (port 443).' }),
       })
 
     renderWithProviders(<ScanWorkspace />)
@@ -284,11 +284,11 @@ describe('ScanWorkspace', () => {
     })
 
     await waitFor(() => {
-      expect(screen.getByText('AI analysis failed: ConnectionError')).toBeInTheDocument()
+      expect(screen.getByText('Could not connect to Nebius Token Factory. Check backend DNS, TLS, proxy, and outbound HTTPS (port 443).')).toBeInTheDocument()
     })
   })
 
-  it('labels mock analysis and keeps plan creation disabled when ai_used is false', async () => {
+  it('labels mock analysis and creates plans from deterministic scan data instead of mock output', async () => {
     ;(global.fetch as vi.Mock)
       .mockResolvedValueOnce({
         ...mockProjectRegistration,
@@ -301,6 +301,10 @@ describe('ScanWorkspace', () => {
       .mockResolvedValueOnce({
         ok: true,
         json: async () => ({ ...mockAIAnalysisResult, ai_used: false, provider_name: 'mock', model: 'devsweep-demo', analysis_id: null }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockPlanResponse,
       })
 
     renderWithProviders(<ScanWorkspace />)
@@ -319,11 +323,19 @@ describe('ScanWorkspace', () => {
     fireEvent.click(screen.getByText('Run AI Analysis'))
 
     await waitFor(() => {
-      expect(screen.getByText(/mock.*analysis/i)).toBeInTheDocument()
+      expect(screen.getByText(/demo.*analysis/i)).toBeInTheDocument()
     })
+    fireEvent.click(screen.getByRole('button', { name: 'Review Plan' }))
+    await waitFor(() => expect(screen.getByText('Create Review Plan')).toBeInTheDocument())
+    fireEvent.click(screen.getByText('Create Review Plan'))
+    await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('/plans'))
+    const planPayload = JSON.parse((global.fetch as vi.Mock).mock.calls[3][1].body)
+    expect(planPayload.analysis_id).toBeUndefined()
+    expect(planPayload.items[0].path).toBe('node_modules')
+    expect(planPayload.items[0].ai_risk).toBeUndefined()
   })
 
-  it('calls /api/cleanup/plan and navigates to /plans when Approve & Create Cleanup Plan is clicked after AI analysis', async () => {
+  it('calls /api/cleanup/plan and navigates to /plans when a verified AI review plan is created', async () => {
     ;(global.fetch as vi.Mock)
       .mockResolvedValueOnce({
         ...mockProjectRegistration,
@@ -359,18 +371,18 @@ describe('ScanWorkspace', () => {
     fireEvent.click(screen.getByText('Run AI Analysis'))
 
     await waitFor(() => {
-      expect(screen.getByText('Continue to Confirm')).toBeInTheDocument()
+      expect(screen.getByText('Review Plan')).toBeInTheDocument()
     })
 
-    // Click Continue to Confirm
-    fireEvent.click(screen.getByText('Continue to Confirm'))
+    // Review plan items before creating the plan
+    fireEvent.click(screen.getByText('Review Plan'))
 
     await waitFor(() => {
-      expect(screen.getByText('Approve & Create Cleanup Plan')).toBeInTheDocument()
+      expect(screen.getByText('Create Review Plan')).toBeInTheDocument()
     })
 
-    // Click Approve & Create Cleanup Plan
-    fireEvent.click(screen.getByText('Approve & Create Cleanup Plan'))
+    // Create a review plan; execution requires a separate approval in Cleanup Plans
+    fireEvent.click(screen.getByText('Create Review Plan'))
 
     // Wait for plan creation and navigation
     await waitFor(() => {
@@ -427,18 +439,18 @@ describe('ScanWorkspace', () => {
     fireEvent.click(screen.getByText('Run AI Analysis'))
 
     await waitFor(() => {
-      expect(screen.getByText('Continue to Confirm')).toBeInTheDocument()
+      expect(screen.getByText('Review Plan')).toBeInTheDocument()
     })
 
-    // Click Continue to Confirm
-    fireEvent.click(screen.getByText('Continue to Confirm'))
+    // Open the plan review before submitting the plan request.
+    fireEvent.click(screen.getByText('Review Plan'))
 
     await waitFor(() => {
-      expect(screen.getByText('Approve & Create Cleanup Plan')).toBeInTheDocument()
+      expect(screen.getByText('Create Review Plan')).toBeInTheDocument()
     })
 
-    // Click Approve & Create Cleanup Plan
-    fireEvent.click(screen.getByText('Approve & Create Cleanup Plan'))
+    // Create a review-only plan; execution approval is a separate step.
+    fireEvent.click(screen.getByText('Create Review Plan'))
 
     await waitFor(() => {
       expect(screen.getByText('Plan creation failed')).toBeInTheDocument()
@@ -449,7 +461,7 @@ describe('ScanWorkspace', () => {
     renderWithProviders(<ScanWorkspace />)
     
     // Should not show scan results or approve button without a scan
-    expect(screen.queryByText('Approve & Create Cleanup Plan')).not.toBeInTheDocument()
+    expect(screen.queryByText('Create Review Plan')).not.toBeInTheDocument()
   })
 
   it('disables AI analysis button when no candidates', async () => {

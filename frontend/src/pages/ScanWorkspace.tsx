@@ -88,6 +88,8 @@ interface AIAnalysisResult {
   total_recoverable_human: string;
 }
 
+type ReviewCandidate = AIAnalysisResult['candidates'][number];
+
 const STEPS: Array<{ id: ScanStep; label: string; description: string; icon: React.ReactNode }> = [
   { id: 'scan', label: 'Scan', description: 'Select and scan a project', icon: <Search className="w-4 h-4" /> },
   { id: 'review', label: 'Review', description: 'Review cleanup candidates', icon: <Eye className="w-4 h-4" /> },
@@ -204,12 +206,12 @@ export function ScanWorkspace() {
   }, [scanResult, viewMode]);
 
   const handleCreatePlan = useCallback(async () => {
-    if (!scanResult || !aiAnalysisResult || !aiAnalysisResult.ai_used || !aiAnalysisResult.analysis_id) {
-      setError('AI analysis required before creating plan. Run AI analysis first.');
-      return;
-    }
+    if (!scanResult) return;
 
-    const selectedItems = aiAnalysisResult.candidates
+    const candidates: ReviewCandidate[] = aiAnalysisResult?.ai_used
+      ? aiAnalysisResult.candidates
+      : scanResult.cleanup_candidates.map(c => ({ ...c, action: c.risk === 'DANGEROUS' ? 'KEEP' : 'DELETE' }));
+    const selectedItems = candidates
       .filter(c => selectedCandidates.has(c.path))
       .filter(c => c.risk !== 'DANGEROUS')
       .map(c => ({
@@ -237,7 +239,7 @@ export function ScanWorkspace() {
         body: JSON.stringify({
           project_path: scanResult.project_path,
           access_grant_id: scanResult.access_grant_id,
-          analysis_id: aiAnalysisResult.analysis_id,
+          analysis_id: aiAnalysisResult?.ai_used ? aiAnalysisResult.analysis_id : undefined,
           scan_id: scanResult.scan_id,
           items: selectedItems,
         }),
@@ -262,10 +264,9 @@ export function ScanWorkspace() {
   };
 
   const getSelectedStats = () => {
-    const candidates = aiAnalysisResult?.candidates || scanResult?.cleanup_candidates.map(c => ({
-      ...c,
-      action: c.risk === 'DANGEROUS' ? 'KEEP' as const : 'DELETE' as const,
-    })) || [];
+    const candidates: ReviewCandidate[] = aiAnalysisResult?.ai_used
+      ? aiAnalysisResult.candidates
+      : scanResult?.cleanup_candidates.map(c => ({ ...c, action: c.risk === 'DANGEROUS' ? 'KEEP' as const : 'DELETE' as const })) || [];
     const selected = candidates.filter(c => selectedCandidates.has(c.path) && c.action === 'DELETE' && c.risk !== 'DANGEROUS');
     return {
       count: selected.length,
@@ -274,7 +275,7 @@ export function ScanWorkspace() {
   };
 
   const canProceedToReview = scanResult !== null && scanResult.cleanup_candidates.length > 0;
-  const canProceedToConfirm = aiAnalysisResult !== null && aiAnalysisResult.ai_used && getSelectedStats().count > 0;
+  const canProceedToConfirm = scanResult !== null && getSelectedStats().count > 0;
 
   // Render Step 1: Scan
   const renderScanStep = () => (
@@ -357,15 +358,9 @@ export function ScanWorkspace() {
   const renderReviewStep = () => {
     if (!scanResult) return null;
 
-    const candidates = aiAnalysisResult?.candidates || scanResult.cleanup_candidates.map(c => ({
-      path: c.path,
-      action: c.risk !== 'DANGEROUS' ? 'DELETE' : 'KEEP',
-      risk: c.risk,
-      ai_risk: c.ai_risk,
-      reason: c.reason,
-      size_bytes: c.size_bytes,
-      size_human: c.size_human,
-    }));
+    const candidates: ReviewCandidate[] = aiAnalysisResult?.ai_used
+      ? aiAnalysisResult.candidates
+      : scanResult.cleanup_candidates.map(c => ({ ...c, action: c.risk !== 'DANGEROUS' ? 'DELETE' : 'KEEP' }));
 
     const deletableCandidates = candidates.filter(c => c.action === 'DELETE');
     const dangerousCandidates = candidates.filter(c => c.risk === 'DANGEROUS');
@@ -571,11 +566,11 @@ export function ScanWorkspace() {
               <Button
                 variant={selectedDeletableCount > 0 ? 'primary' : 'secondary'}
                 onClick={() => setCurrentStep('confirm')}
-                disabled={selectedDeletableCount === 0 || !aiAnalysisResult?.ai_used}
+                disabled={selectedDeletableCount === 0}
                 icon={<ChevronRight className="w-4 h-4" />}
                 iconPosition="right"
               >
-                {selectedDeletableCount === 0 ? 'Select items to continue' : 'Continue to Confirm'}
+                {selectedDeletableCount === 0 ? 'Select items to continue' : 'Review Plan'}
               </Button>
             </div>
           </CardContent>
@@ -611,7 +606,7 @@ export function ScanWorkspace() {
                   ) : (
                     <>
                       <AlertCircle className="w-5 h-5 text-devsweep-warning" />
-                      <span className="text-sm font-medium text-devsweep-warning">Mock analysis - real AI cleanup plans unavailable</span>
+                      <span className="text-sm font-medium text-devsweep-warning">Demo analysis - cleanup plans use deterministic scan data</span>
                     </>
                   )}
                 </div>
@@ -640,7 +635,7 @@ export function ScanWorkspace() {
               </div>
             )}
             {aiProvider === 'mock' && !aiAnalysisResult && (
-              <p className="text-sm text-devsweep-warning">Demo/mock provider active. AI analysis will be labeled as demo and cannot authorize cleanup plans.</p>
+              <p className="text-sm text-devsweep-warning">Demo/mock provider active. Mock output is not used for cleanup plans; the backend uses fresh deterministic scan results.</p>
             )}
           </CardContent>
         </Card>
@@ -650,9 +645,12 @@ export function ScanWorkspace() {
 
   // Render Step 3: Confirm (Adaptive)
   const renderConfirmStep = () => {
-    if (!scanResult || !aiAnalysisResult) return null;
+    if (!scanResult) return null;
 
-    const selectedItems = aiAnalysisResult.candidates.filter(c => selectedCandidates.has(c.path) && c.action === 'DELETE');
+    const planCandidates: ReviewCandidate[] = aiAnalysisResult?.ai_used
+      ? aiAnalysisResult.candidates
+      : scanResult.cleanup_candidates.map(c => ({ ...c, action: c.risk !== 'DANGEROUS' ? 'DELETE' : 'KEEP' }));
+    const selectedItems = planCandidates.filter(c => selectedCandidates.has(c.path) && c.action === 'DELETE');
     const totalBytes = selectedItems.reduce((sum, c) => sum + c.size_bytes, 0);
     const cautionItems = selectedItems.filter(c => c.risk === 'CAUTION' || c.ai_risk === 'CAUTION');
     const safeItems = selectedItems.filter(c => c.risk === 'SAFE' && c.ai_risk !== 'CAUTION');
@@ -812,7 +810,7 @@ export function ScanWorkspace() {
               icon={creatingPlan ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
               size="lg"
             >
-              {creatingPlan ? 'Creating Plan...' : 'Approve & Create Cleanup Plan'}
+              {creatingPlan ? 'Creating Plan...' : 'Create Review Plan'}
             </Button>
           </CardFooter>
         </Card>

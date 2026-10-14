@@ -500,16 +500,20 @@ async def _dispatch_agent_tool(name: str, raw_arguments: Dict[str, Any], request
             return {"ok": True, "summary": "Explanation from the real scanner candidate.", "workspace": workspace, "candidate": candidate}
 
         analysis = await ai_analyze(AnalyzeRequest(project_path=scan.project_path, access_grant_id=scan.access_grant_id))
-        if not analysis.ai_used or not analysis.analysis_id:
-            return {
-                "ok": False,
-                "status": 403,
-                "summary": "A cleanup plan requires a successful live Nebius analysis. The project was scanned, but no plan was created because this provider did not return a verified analysis.",
-                "workspace": workspace,
-            }
         safe_only = arguments.safe_only or bool(re.search(r"\b(safe[- ]only|only\s+safe|safe cleanup|clean only safe)\b", user_message, re.IGNORECASE))
+        plan_candidates = analysis.candidates if analysis.ai_used else [
+            {
+                "path": item["path"],
+                "action": "DELETE" if item["risk"] != "DANGEROUS" else "KEEP",
+                "risk": item["risk"],
+                "ai_risk": None,
+                "reason": item["reason"],
+                "size_bytes": item["size_bytes"],
+            }
+            for item in workspace["cleanup_candidates"]
+        ]
         selected = [
-            item for item in analysis.candidates
+            item for item in plan_candidates
             if item.get("action") == "DELETE"
             and (not safe_only or (item.get("risk") == "SAFE" and item.get("ai_risk", "SAFE") == "SAFE"))
         ]
@@ -521,7 +525,7 @@ async def _dispatch_agent_tool(name: str, raw_arguments: Dict[str, Any], request
         plan = await create_cleanup_plan(CleanupPlanRequest(
             project_path=scan.project_path,
             access_grant_id=scan.access_grant_id,
-            analysis_id=analysis.analysis_id,
+            analysis_id=analysis.analysis_id if analysis.ai_used else None,
             scan_id=scan.scan_id,
             items=[CleanupItemRequest(
                 path=item["path"], action=item["action"], risk=item["risk"],
@@ -649,6 +653,13 @@ Return JSON:
             raise HTTPException(status_code=502, detail="Nebius authentication failed. Verify backend credentials.") from e
         if error_type == "RateLimitError":
             raise HTTPException(status_code=429, detail="Nebius rate limit reached. Retry later.") from e
+        if error_type == "APITimeoutError":
+            raise HTTPException(status_code=504, detail="Nebius inference timed out. Check connectivity and retry.") from e
+        if error_type == "APIConnectionError":
+            raise HTTPException(
+                status_code=502,
+                detail="Could not connect to Nebius Token Factory. Check backend DNS, TLS, proxy, and outbound HTTPS (port 443).",
+            ) from e
         raise HTTPException(status_code=502, detail=f"Nebius inference failed: {error_type}") from e
 
     ai_used = isinstance(provider, NebiusProvider) and not settings.DEVSWEEP_DEMO_MODE

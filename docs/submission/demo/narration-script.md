@@ -4,6 +4,8 @@
 **Voice:** not recorded or synthesized; this is a script-only narration deliverable.
 **Music:** none; keep the interface audio-free and narration clear.
 
+This draft follows the genuine live-AI synthetic workflow documented in `verification-report.md` and shown in the gallery. If a recording uses no-key mode, replace the live-AI paragraph with the deterministic-scan alternative described in the judge guide; do not narrate a successful provider request unless that recording shows one.
+
 ## 0:00–0:20 — Personal hook
 
 As a B.Tech Computer Science student, I spend a lot of time building projects. I’ve noticed the same thing among friends and fellow students: projects leave behind dependencies, build outputs, caches, and temporary files. Deleting the wrong thing can break a working project.

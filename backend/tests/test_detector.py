@@ -1385,6 +1385,41 @@ class TestNebiusInferenceGate:
             assert exc.value.status_code == 502
             assert "Nebius inference failed" in exc.value.detail
 
+    def test_nebius_connection_error_is_actionable_and_sanitized(self, monkeypatch):
+        import httpx
+        import ai.routes as ai_routes
+        from openai import APIConnectionError
+        monkeypatch.setattr(
+            ai_routes,
+            "get_ai_provider",
+            lambda: FakeNebiusProvider(APIConnectionError(request=httpx.Request("POST", "https://example.invalid/v1/chat/completions"))),
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            from fastapi import HTTPException
+            with pytest.raises(HTTPException) as exc:
+                asyncio.run(ai_analyze(AnalyzeRequest(project_path=tmpdir)))
+            assert exc.value.status_code == 502
+            assert "Could not connect to Nebius Token Factory" in exc.value.detail
+            assert "outbound HTTPS (port 443)" in exc.value.detail
+            assert "example.invalid" not in exc.value.detail
+
+    def test_nebius_timeout_is_distinguished_from_connection_failure(self, monkeypatch):
+        import httpx
+        import ai.routes as ai_routes
+        from openai import APITimeoutError
+        monkeypatch.setattr(
+            ai_routes,
+            "get_ai_provider",
+            lambda: FakeNebiusProvider(APITimeoutError(request=httpx.Request("POST", "https://example.invalid/v1/chat/completions"))),
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            from fastapi import HTTPException
+            with pytest.raises(HTTPException) as exc:
+                asyncio.run(ai_analyze(AnalyzeRequest(project_path=tmpdir)))
+            assert exc.value.status_code == 504
+            assert "timed out" in exc.value.detail
+            assert "example.invalid" not in exc.value.detail
+
     def test_provider_configuration_error_is_clear_and_sanitized(self, monkeypatch):
         import ai.routes as ai_routes
         from fastapi.testclient import TestClient
@@ -1395,7 +1430,7 @@ class TestNebiusInferenceGate:
         assert "provider configuration failed" in response.json()["detail"]
         assert "sensitive detail" not in response.json()["detail"]
 
-    def test_both_plan_routes_reject_mock_analysis(self, monkeypatch):
+    def test_mock_analysis_cannot_authorize_plan_but_deterministic_scan_can(self, monkeypatch):
         import ai.routes as ai_routes
         from fastapi.testclient import TestClient
         from main import app
@@ -1414,11 +1449,13 @@ class TestNebiusInferenceGate:
 
             candidate = next(c for c in analysis["candidates"] if c["path"] == "cache")
             plan_resp = client.post("/api/cleanup/plan", json={
-                "project_path": str(root), "analysis_id": analysis["analysis_id"],
+                "project_path": str(root),
                 "items": [{"path": "cache", "action": candidate["action"], "risk": candidate["risk"],
                            "reason": candidate["reason"], "estimated_bytes": candidate["size_bytes"]}],
             })
-            assert plan_resp.status_code == 403
+            assert plan_resp.status_code == 200
+            assert plan_resp.json()["items"][0]["path"] == "cache"
+            assert plan_resp.json()["items"][0]["ai_risk"] is None
 
             generated_resp = client.post("/api/cleanup/generate-plan", json={"project_path": str(root)})
             assert generated_resp.status_code == 403

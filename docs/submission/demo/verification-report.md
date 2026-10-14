@@ -42,3 +42,11 @@
 3. Play back the final MP4 and check duration, audio sync, readability, and the visible path/secret area before submitting it.
 
 The completed live workflow is verified, but the final video and saved screenshot files are not yet deliverable artifacts.
+
+## Supplied-video review and export attempt (2026-10-13)
+
+The supplied `1.mp4` (4:46.8) and `2.mp4` (0:21.4) were decoded and inspected without modifying the originals. Both are 1280×720 at 30 fps and include a two-channel audio stream. The first video is mostly the OBS Studio interface in the sampled sections, with a real scan-review view around 0:45 and a visible `clideo.com` watermark. The second shows the Settings page. Neither clip documents cleanup execution, post-cleanup verification, and restore as a continuous authentic workflow.
+
+**Export not completed.** FFmpeg/FFprobe and a working local MP4 editor/export path were unavailable. OBS was present, but its control endpoint was not configured. Local Windows speech synthesis was attempted again and failed because speech output is blocked by the current system security setting. No narration, burned-in captions, or SRT synchronized to these source clips was produced. Existing narration and SRT files remain draft material only. No real cleanup was run, and the original footage and app source were left untouched.
+
+The previously documented synthetic workflow verification remains historical workflow evidence; it is not footage captured in the two supplied videos. Do not describe this requested video as completed or end-to-end demonstrated until a coherent, genuine workflow capture is available and rendered.
